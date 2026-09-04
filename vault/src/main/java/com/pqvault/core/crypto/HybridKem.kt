@@ -3,16 +3,16 @@ package com.pqvault.core.crypto
 import org.bouncycastle.crypto.agreement.X25519Agreement
 import org.bouncycastle.crypto.digests.SHA256Digest
 import org.bouncycastle.crypto.generators.HKDFBytesGenerator
+import org.bouncycastle.crypto.generators.MLKEMKeyPairGenerator
+import org.bouncycastle.crypto.kems.MLKEMExtractor
+import org.bouncycastle.crypto.kems.MLKEMGenerator
 import org.bouncycastle.crypto.params.HKDFParameters
+import org.bouncycastle.crypto.params.MLKEMKeyGenerationParameters
+import org.bouncycastle.crypto.params.MLKEMParameters
+import org.bouncycastle.crypto.params.MLKEMPrivateKeyParameters
+import org.bouncycastle.crypto.params.MLKEMPublicKeyParameters
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
-import org.bouncycastle.pqc.crypto.mlkem.MLKEMExtractor
-import org.bouncycastle.pqc.crypto.mlkem.MLKEMGenerator
-import org.bouncycastle.pqc.crypto.mlkem.MLKEMKeyPairGenerator
-import org.bouncycastle.pqc.crypto.mlkem.MLKEMKeyGenerationParameters
-import org.bouncycastle.pqc.crypto.mlkem.MLKEMParameters
-import org.bouncycastle.pqc.crypto.mlkem.MLKEMPrivateKeyParameters
-import org.bouncycastle.pqc.crypto.mlkem.MLKEMPublicKeyParameters
 import java.security.SecureRandom
 
 /**
@@ -38,6 +38,7 @@ object HybridKem {
 
     const val X25519_PUBLIC_SIZE = 32
     private const val X25519_SHARED_SIZE = 32
+    const val ML_KEM_SEED_SIZE = 64
     const val ML_KEM_768_PUBLIC_SIZE = 1184
     const val ML_KEM_768_CIPHERTEXT_SIZE = 1088
 
@@ -63,11 +64,20 @@ object HybridKem {
     }
 
     class PrivateKey(val x25519: ByteArray, val mlKemSeed: ByteArray) {
+        init {
+            require(x25519.size == X25519_PUBLIC_SIZE) { "bad X25519 private key size ${x25519.size}" }
+            require(mlKemSeed.size == ML_KEM_SEED_SIZE) { "bad ML-KEM seed size ${mlKemSeed.size}" }
+        }
+
         fun encoded(): ByteArray = byteArrayOf(x25519.size.toByte()) + x25519 + mlKemSeed
 
         companion object {
             fun decode(bytes: ByteArray): PrivateKey {
+                require(bytes.size == 1 + X25519_PUBLIC_SIZE + ML_KEM_SEED_SIZE) {
+                    "bad hybrid private key size ${bytes.size}"
+                }
                 val xLen = bytes[0].toInt() and 0xff
+                require(xLen == X25519_PUBLIC_SIZE) { "bad encoded X25519 private key size $xLen" }
                 return PrivateKey(
                     bytes.copyOfRange(1, 1 + xLen),
                     bytes.copyOfRange(1 + xLen, bytes.size),
@@ -94,7 +104,7 @@ object HybridKem {
             PublicKey(xPriv.generatePublicKey().encoded, pqPub.encoded),
             // Store the 64-byte seed rather than the expanded key: it is far smaller and
             // BouncyCastle can deterministically re-expand it.
-            PrivateKey(xPriv.encoded, pqPriv.getParametersWithFormat(MLKEMPrivateKeyParameters.SEED_ONLY).encoded),
+            PrivateKey(xPriv.encoded, pqPriv.seed),
         )
     }
 

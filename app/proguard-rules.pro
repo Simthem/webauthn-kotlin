@@ -3,8 +3,14 @@
 # implementations of dozens of algorithms this app never touches, and letting R8 discard
 # them is most of the size win.
 -keep class org.bouncycastle.jcajce.provider.** { *; }
--keep class org.bouncycastle.pqc.crypto.mlkem.** { *; }
--keep class org.bouncycastle.pqc.crypto.mldsa.** { *; }
+-keep class org.bouncycastle.crypto.kems.mlkem.** { *; }
+-keep class org.bouncycastle.crypto.kems.MLKEM* { *; }
+-keep class org.bouncycastle.crypto.generators.MLKEM* { *; }
+-keep class org.bouncycastle.crypto.params.MLKEM* { *; }
+-keep class org.bouncycastle.crypto.signers.mldsa.** { *; }
+-keep class org.bouncycastle.crypto.signers.MLDSA* { *; }
+-keep class org.bouncycastle.crypto.generators.MLDSA* { *; }
+-keep class org.bouncycastle.crypto.params.MLDSA* { *; }
 -dontwarn org.bouncycastle.**
 -dontwarn javax.naming.**
 

@@ -1,6 +1,7 @@
 package com.pqvault.core.crypto
 
 import com.google.common.truth.Truth.assertThat
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 
 class HybridKemTest {
@@ -87,5 +88,22 @@ class HybridKemTest {
 
         val encap = HybridKem.encapsulate(pub)
         assertThat(HybridKem.decapsulate(priv, pub, encap.ciphertext)).isEqualTo(encap.sharedSecret)
+    }
+
+    @Test
+    fun `private key decoder rejects truncated and oversized encodings`() {
+        val encoded = HybridKem.generateKeyPair().privateKey.encoded()
+
+        assertThrows<IllegalArgumentException> { HybridKem.PrivateKey.decode(byteArrayOf()) }
+        assertThrows<IllegalArgumentException> { HybridKem.PrivateKey.decode(encoded.copyOf(encoded.size - 1)) }
+        assertThrows<IllegalArgumentException> { HybridKem.PrivateKey.decode(encoded + 0) }
+    }
+
+    @Test
+    fun `private key decoder rejects a forged component length`() {
+        val encoded = HybridKem.generateKeyPair().privateKey.encoded()
+        encoded[0] = (HybridKem.X25519_PUBLIC_SIZE - 1).toByte()
+
+        assertThrows<IllegalArgumentException> { HybridKem.PrivateKey.decode(encoded) }
     }
 }

@@ -1,6 +1,7 @@
 package com.pqvault.core.crypto
 
 import com.google.common.truth.Truth.assertThat
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 
 class HybridSignatureTest {
@@ -71,6 +72,14 @@ class HybridSignatureTest {
     }
 
     @Test
+    fun `verify rejects an oversized signature before parsing it`() {
+        val kp = HybridSignature.generateKeyPair()
+        val signature = HybridSignature.sign(kp.privateKey, message)
+
+        assertThat(HybridSignature.verify(kp.publicKey, message, signature + 0)).isFalse()
+    }
+
+    @Test
     fun `public key survives an encode decode round trip`() {
         val kp = HybridSignature.generateKeyPair()
         val signature = HybridSignature.sign(kp.privateKey, message)
@@ -78,5 +87,24 @@ class HybridSignatureTest {
         val decoded = HybridSignature.PublicKey.decode(kp.publicKey.encoded())
 
         assertThat(HybridSignature.verify(decoded, message, signature)).isTrue()
+    }
+
+    @Test
+    fun `public key decoder rejects malformed lengths`() {
+        val encoded = HybridSignature.generateKeyPair().publicKey.encoded()
+
+        assertThrows<IllegalArgumentException> { HybridSignature.PublicKey.decode(byteArrayOf()) }
+        assertThrows<IllegalArgumentException> { HybridSignature.PublicKey.decode(encoded.copyOf(encoded.size - 1)) }
+        assertThrows<IllegalArgumentException> { HybridSignature.PublicKey.decode(encoded + 0) }
+    }
+
+    @Test
+    fun `private key rejects malformed component lengths`() {
+        assertThrows<IllegalArgumentException> {
+            HybridSignature.PrivateKey(ByteArray(HybridSignature.ED25519_PRIVATE_SIZE - 1), ByteArray(32))
+        }
+        assertThrows<IllegalArgumentException> {
+            HybridSignature.PrivateKey(ByteArray(32), ByteArray(HybridSignature.ML_DSA_SEED_SIZE - 1))
+        }
     }
 }

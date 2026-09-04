@@ -97,6 +97,12 @@ encrypted file instead. The two models are incompatible: credentials created wit
 
 - BouncyCastle moved from 1.81 to 1.85.2. It is the one flagged dependency that actually
   ships: everything else Snyk reported came from configurations that never reach the APK.
+- Netty 4.1.137, Protobuf 3.25.5 and Logback 1.5.37 are enforced across every Gradle
+  configuration, including AGP's test harness and ktlint, so build tooling is not left on
+  vulnerable transitive releases merely because it is absent from the APK.
+- ML-KEM and ML-DSA use BouncyCastle's current low-level APIs instead of their deprecated
+  `pqc.crypto` predecessors. Hybrid public/private keys and signatures now reject wrong
+  lengths before copying or parsing attacker-controlled data.
 - The BLE advert's block encryption no longer goes through
   `Cipher.getInstance("AES/ECB/NoPadding")`. It asks BouncyCastle for the raw block
   cipher, which is what the CTAP hybrid transport actually specifies. ECB is a rule for

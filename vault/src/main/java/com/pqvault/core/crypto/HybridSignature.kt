@@ -1,14 +1,14 @@
 package com.pqvault.core.crypto
 
+import org.bouncycastle.crypto.generators.MLDSAKeyPairGenerator
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
+import org.bouncycastle.crypto.params.MLDSAKeyGenerationParameters
+import org.bouncycastle.crypto.params.MLDSAParameters
+import org.bouncycastle.crypto.params.MLDSAPrivateKeyParameters
+import org.bouncycastle.crypto.params.MLDSAPublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
-import org.bouncycastle.pqc.crypto.mldsa.MLDSAKeyGenerationParameters
-import org.bouncycastle.pqc.crypto.mldsa.MLDSAKeyPairGenerator
-import org.bouncycastle.pqc.crypto.mldsa.MLDSAParameters
-import org.bouncycastle.pqc.crypto.mldsa.MLDSAPrivateKeyParameters
-import org.bouncycastle.pqc.crypto.mldsa.MLDSAPublicKeyParameters
-import org.bouncycastle.pqc.crypto.mldsa.MLDSASigner
+import org.bouncycastle.crypto.signers.MLDSASigner
 import java.security.SecureRandom
 
 /**
@@ -29,20 +29,39 @@ object HybridSignature {
     private val ML_DSA = MLDSAParameters.ml_dsa_65
 
     const val ED25519_PUBLIC_SIZE = 32
+    const val ED25519_PRIVATE_SIZE = 32
     const val ED25519_SIGNATURE_SIZE = 64
+    const val ML_DSA_SEED_SIZE = 32
+    const val ML_DSA_65_PUBLIC_SIZE = 1952
+    const val ML_DSA_65_SIGNATURE_SIZE = 3309
 
     class PublicKey(val ed25519: ByteArray, val mlDsa: ByteArray) {
+        init {
+            require(ed25519.size == ED25519_PUBLIC_SIZE) { "bad Ed25519 public key size ${ed25519.size}" }
+            require(mlDsa.size == ML_DSA_65_PUBLIC_SIZE) { "bad ML-DSA-65 public key size ${mlDsa.size}" }
+        }
+
         fun encoded(): ByteArray = ed25519 + mlDsa
 
         companion object {
-            fun decode(bytes: ByteArray): PublicKey = PublicKey(
-                bytes.copyOfRange(0, ED25519_PUBLIC_SIZE),
-                bytes.copyOfRange(ED25519_PUBLIC_SIZE, bytes.size),
-            )
+            fun decode(bytes: ByteArray): PublicKey {
+                require(bytes.size == ED25519_PUBLIC_SIZE + ML_DSA_65_PUBLIC_SIZE) {
+                    "bad hybrid signing public key size ${bytes.size}"
+                }
+                return PublicKey(
+                    bytes.copyOfRange(0, ED25519_PUBLIC_SIZE),
+                    bytes.copyOfRange(ED25519_PUBLIC_SIZE, bytes.size),
+                )
+            }
         }
     }
 
-    class PrivateKey(val ed25519: ByteArray, val mlDsaSeed: ByteArray)
+    class PrivateKey(val ed25519: ByteArray, val mlDsaSeed: ByteArray) {
+        init {
+            require(ed25519.size == ED25519_PRIVATE_SIZE) { "bad Ed25519 private key size ${ed25519.size}" }
+            require(mlDsaSeed.size == ML_DSA_SEED_SIZE) { "bad ML-DSA seed size ${mlDsaSeed.size}" }
+        }
+    }
 
     class KeyPair(val publicKey: PublicKey, val privateKey: PrivateKey)
 
@@ -57,7 +76,7 @@ object HybridSignature {
 
         return KeyPair(
             PublicKey(edPriv.generatePublicKey().encoded, pqPub.encoded),
-            PrivateKey(edPriv.encoded, pqPriv.getParametersWithFormat(MLDSAPrivateKeyParameters.SEED_ONLY).encoded),
+            PrivateKey(edPriv.encoded, pqPriv.seed),
         )
     }
 
@@ -77,7 +96,7 @@ object HybridSignature {
 
     /** True only when both halves verify. */
     fun verify(publicKey: PublicKey, message: ByteArray, signature: ByteArray): Boolean {
-        if (signature.size <= ED25519_SIGNATURE_SIZE) return false
+        if (signature.size != ED25519_SIGNATURE_SIZE + ML_DSA_65_SIGNATURE_SIZE) return false
         val edSignature = signature.copyOfRange(0, ED25519_SIGNATURE_SIZE)
         val pqSignature = signature.copyOfRange(ED25519_SIGNATURE_SIZE, signature.size)
 
