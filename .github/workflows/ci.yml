@@ -28,24 +28,24 @@ jobs:
     name: Gradle wrapper
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
   build:
     name: Build and unit tests
     runs-on: ubuntu-latest
     needs: wrapper
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
 
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Unit tests
         run: ./gradlew --no-daemon :vault:test :app:testDebugUnitTest
@@ -56,7 +56,7 @@ jobs:
       # Reports are worth more on failure than on success, hence always().
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-reports
           path: |
@@ -66,7 +66,7 @@ jobs:
             app/build/test-results/
           retention-days: 14
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: debug-apk
           path: app/build/outputs/apk/debug/*.apk
@@ -80,13 +80,13 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Lint
         run: ./gradlew --no-daemon :app:lintDebug
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload Lint SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: lint-errors.sarif
           category: android-lint
@@ -127,7 +127,7 @@ jobs:
       # rather than gone.
       - name: Upload the full Lint report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lint-report
           path: |
@@ -149,18 +149,18 @@ jobs:
       matrix:
         language: [java-kotlin, actions]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         if: matrix.language == 'java-kotlin'
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         if: matrix.language == 'java-kotlin'
 
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
           # security-and-quality is broader than the default suite and worth the extra
@@ -177,7 +177,7 @@ jobs:
         if: matrix.language == 'java-kotlin'
         run: ./gradlew --no-daemon :vault:compileKotlin :app:compileDebugKotlin
 
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: /language:${{ matrix.language }}
 
@@ -189,13 +189,13 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       # Resolves the actual dependency graph rather than parsing build files, so
       # transitive versions are the ones really on the classpath. BouncyCastle and OkHttp
@@ -205,7 +205,7 @@ jobs:
           ./gradlew --no-daemon -q :app:dependencies --configuration releaseRuntimeClasspath > deps-app.txt || true
           ./gradlew --no-daemon -q :vault:dependencies --configuration runtimeClasspath > deps-vault.txt || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dependency-tree
           path: deps-*.txt
@@ -237,8 +237,8 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
@@ -247,13 +247,13 @@ jobs:
     name: Secret scanning
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Gitleaks reads history, and a secret committed then removed is still leaked.
           fetch-depth: 0
 
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
@@ -265,7 +265,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Scan the repository
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -277,7 +277,7 @@ jobs:
           severity: CRITICAL,HIGH,MEDIUM
           exit-code: '0'
 
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         if: always()
         with:
           sarif_file: trivy.sarif
@@ -293,7 +293,7 @@ jobs:
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Everything below is skipped rather than failed when the token is missing, so a
       # fork's pull request is not red for a secret it was never going to have.
@@ -307,14 +307,14 @@ jobs:
             echo "::notice::SNYK_TOKEN is not set, skipping the Snyk jobs"
           fi
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         if: steps.token.outputs.present == 'true'
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         if: steps.token.outputs.present == 'true'
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         if: steps.token.outputs.present == 'true'
 
       - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
@@ -331,24 +331,25 @@ jobs:
         run: |
           snyk test --all-sub-projects --severity-threshold=medium \
             --configuration-matching='^(releaseRuntimeClasspath|runtimeClasspath)$' \
-            --sarif-file-output=snyk-oss.sarif || true
+            --sarif-file-output=snyk-oss.sarif \
+            --org=themthem58
 
       - name: Snyk Code
-        if: steps.token.outputs.present == 'true'
-        run: snyk code test --sarif-file-output=snyk-code.sarif || true
+        # Still run the source scan if the dependency scan found something. Both SARIF
+        # reports then reach the Security tab before the job correctly remains red.
+        if: always() && steps.token.outputs.present == 'true'
+        run: snyk code test --sarif-file-output=snyk-code.sarif --org=themthem58
 
       - name: Upload Snyk Open Source SARIF
-        if: steps.token.outputs.present == 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.token.outputs.present == 'true' && hashFiles('snyk-oss.sarif') != ''
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: snyk-oss.sarif
           category: snyk-oss
-        continue-on-error: true
 
       - name: Upload Snyk Code SARIF
-        if: steps.token.outputs.present == 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.token.outputs.present == 'true' && hashFiles('snyk-code.sarif') != ''
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: snyk-code.sarif
           category: snyk-code
-        continue-on-error: true
