@@ -50,7 +50,7 @@ class HybridBleAdvertiser(context: Context) {
         plaintext[15] = (tunnelDomainId ushr 8).toByte()
 
         val eidKey = HybridCrypto.derive(secret, purpose = 1, length = 64)
-        val ciphertext = HybridCrypto.aesEcbEncrypt(eidKey.copyOfRange(0, 32), plaintext)
+        val ciphertext = HybridCrypto.aesEncryptBlock(eidKey.copyOfRange(0, 32), plaintext)
         val tag = HybridCrypto.hmacSha256(eidKey.copyOfRange(32, 64), ciphertext).copyOf(4)
         val serviceData = ciphertext + tag
 

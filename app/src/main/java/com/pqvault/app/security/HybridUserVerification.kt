@@ -32,6 +32,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * is the same guarantee [BiometricVaultLock] relies on, for the same reason.
  */
 class HybridUserVerification(private val context: Context) {
+
+    private val random = SecureRandom()
+
     sealed interface Result {
         data object Verified : Result
         data object Cancelled : Result
@@ -64,15 +67,15 @@ class HybridUserVerification(private val context: Context) {
      * checked is that the key was usable at all.
      */
     private fun exerciseKey(cipher: Cipher): Result = try {
-        cipher.doFinal(ByteArray(CHALLENGE_BYTES).also { SecureRandom().nextBytes(it) })
+        cipher.doFinal(ByteArray(CHALLENGE_BYTES).also { random.nextBytes(it) })
         Result.Verified
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         Result.Failed(context.getString(R.string.hybrid_verify_key_failed))
     }
 
     private fun initCipher(): Cipher = try {
         Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, verificationKey()) }
-    } catch (e: KeyPermanentlyInvalidatedException) {
+    } catch (_: KeyPermanentlyInvalidatedException) {
         // Enrolling a new fingerprint invalidates the key. Unlike the vault lock there is
         // nothing wrapped under it, so regenerating costs nothing: the next prompt simply
         // asks for the finger that now exists.

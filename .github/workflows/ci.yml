@@ -166,6 +166,9 @@ jobs:
           # security-and-quality is broader than the default suite and worth the extra
           # minutes on a codebase that signs assertions for other people's accounts.
           queries: security-and-quality
+          # Four queries are filtered out there, each with the evidence for why it does
+          # not apply to this codebase and what excluding it costs.
+          config-file: ./.github/codeql/codeql-config.yml
           build-mode: ${{ matrix.language == 'java-kotlin' && 'manual' || 'none' }}
 
       # Manual rather than autobuild: autobuild guesses at an Android project and often
@@ -317,10 +320,17 @@ jobs:
       - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         if: steps.token.outputs.present == 'true'
 
+      # --configuration-matching is what keeps this honest. Without it Snyk resolves
+      # every Gradle configuration, including AGP's _internal-unified-test-platform-*,
+      # which drags in a whole gRPC, netty, protobuf and logback stack. None of it is on
+      # any compile or runtime classpath, none of it reaches the APK, and it produced
+      # roughly 160 advisories about code this project never executes. Restricting the
+      # scan to the runtime classpaths reports what actually ships.
       - name: Snyk Open Source
         if: steps.token.outputs.present == 'true'
         run: |
           snyk test --all-sub-projects --severity-threshold=medium \
+            --configuration-matching='^(releaseRuntimeClasspath|runtimeClasspath)$' \
             --sarif-file-output=snyk-oss.sarif || true
 
       - name: Snyk Code

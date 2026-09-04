@@ -152,7 +152,13 @@ snyk:
     - snyk auth "$SNYK_TOKEN"
     # Reported but not gating: a fresh advisory against a transitive dependency should
     # not stop a security fix from being merged. Read the report, then decide.
-    - snyk test --all-sub-projects --severity-threshold=medium --json-file-output=snyk-oss.json || true
+    # See the note in .github/workflows/ci.yml: without --configuration-matching,
+    # Snyk resolves AGP's internal test-platform configurations and reports a gRPC and
+    # netty stack that never reaches the APK.
+    - >
+      snyk test --all-sub-projects --severity-threshold=medium
+      --configuration-matching='^(releaseRuntimeClasspath|runtimeClasspath)$'
+      --json-file-output=snyk-oss.json || true
     - snyk code test --json-file-output=snyk-code.json || true
     - snyk monitor --all-sub-projects || true
   artifacts:

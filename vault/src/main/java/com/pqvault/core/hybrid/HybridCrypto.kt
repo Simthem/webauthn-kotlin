@@ -17,6 +17,8 @@ import javax.crypto.KeyAgreement
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import org.bouncycastle.crypto.engines.AESEngine
+import org.bouncycastle.crypto.params.KeyParameter
 
 /** Cryptographic building blocks used by the FIDO hybrid transport. */
 object HybridCrypto {
@@ -78,24 +80,26 @@ object HybridCrypto {
     }
 
     /**
-     * A single AES block, which is what the CTAP hybrid transport specifies for the BLE
-     * advert's EID and the only reason ECB appears anywhere in this codebase.
+     * One AES block, which is what the CTAP hybrid transport specifies for the BLE
+     * advert's EID.
      *
-     * ECB is dangerous because it leaks the equality of repeated blocks. There is exactly
-     * one block here, encrypted under a key derived per session, and the result carries
-     * its own HMAC tag, so none of that applies: this is a raw block cipher call, not a
-     * mode of operation. The size is enforced rather than assumed so it cannot quietly
-     * become a real ECB mode later.
+     * This uses the raw block cipher rather than `Cipher.getInstance("AES/ECB/NoPadding")`
+     * because the raw block cipher is what is meant. ECB is a *mode*: it is the rule for
+     * chaining many blocks, and it is dangerous precisely because that rule leaks which
+     * blocks repeat. With a single block there is no chaining and no mode, so asking the
+     * JCA for one described the operation inaccurately and every scanner that reads the
+     * transformation string was right to say so.
+     *
+     * The size is enforced rather than assumed, so this cannot quietly grow into real ECB
+     * later: a second block would throw instead of being encrypted independently.
      */
-    @Suppress("GetInstance")
-    fun aesEcbEncrypt(key: ByteArray, plaintext: ByteArray): ByteArray {
+    fun aesEncryptBlock(key: ByteArray, plaintext: ByteArray): ByteArray {
         require(plaintext.size == AES_BLOCK_SIZE) {
             "the hybrid advert is a single AES block, was ${plaintext.size} bytes"
         }
-        return Cipher.getInstance("AES/ECB/NoPadding").run {
-            init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
-            doFinal(plaintext)
-        }
+        val engine = AESEngine.newInstance()
+        engine.init(true, KeyParameter(key))
+        return ByteArray(AES_BLOCK_SIZE).also { engine.processBlock(plaintext, 0, it, 0) }
     }
 
     private const val AES_BLOCK_SIZE = 16

@@ -1,0 +1,42 @@
+# CodeQL configuration for PQ Vault.
+#
+# The security-and-quality suite stays on in full. What follows are four queries whose
+# findings were each traced to a specific cause and confirmed not to apply here. Every
+# exclusion carries the evidence and the cost of keeping it, because an undocumented
+# filter list is how a genuine finding eventually gets buried.
+
+name: "PQ Vault"
+
+query-filters:
+  # Reported on every Kotlin sealed class hierarchy in the app module, always at line 1
+  # because the field has no source location. Verified in the compiled bytecode: the
+  # Compose compiler emits "public static final int $stable" on both the parent and each
+  # subclass, so the subclass field masks the parent's. Nothing in the sources declares
+  # either. Cost of excluding: a hand-written field that shadows a superclass field would
+  # no longer be reported.
+  - exclude:
+      id: java/field-masks-super-field
+
+  # Same shape: reported at line 1, no source location. Every local in the flagged files
+  # was checked by hand and is read. Note severity, and a Kotlin extractor artefact
+  # rather than dead code. Cost of excluding: a genuinely unused local stops being
+  # reported, which ktlint and the Kotlin compiler's own warnings still cover.
+  - exclude:
+      id: java/local-variable-is-never-read
+
+  # SyncNotifications builds Intent(context, MainActivity::class.java), which sets the
+  # component explicitly, and wraps it with FLAG_IMMUTABLE. Both conditions the query
+  # looks for are already absent. Cost of excluding: a future PendingIntent built from a
+  # genuinely implicit Intent would not be caught, so this is worth revisiting if the app
+  # ever sends a PendingIntent to another application.
+  - exclude:
+      id: java/android/implicit-pendingintents
+
+  # Two call sites, neither of which can pin. AssetLinksValidator fetches
+  # https://<rpId>/.well-known/assetlinks.json where rpId is whichever site is asking, so
+  # there is no certificate to pin. HybridSession opens the FIDO caBLE tunnel, which
+  # relays Noise-encrypted frames and is untrusted by design: pinning it would add no
+  # confidentiality and would break on every certificate rotation. Cost of excluding: if
+  # a fixed-host client is ever added, this query will not flag the missing pinning.
+  - exclude:
+      id: java/android/missing-certificate-pinning

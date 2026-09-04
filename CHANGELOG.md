@@ -95,6 +95,19 @@ encrypted file instead. The two models are incompatible: credentials created wit
 
 ### Security
 
+- BouncyCastle moved from 1.81 to 1.85.2. It is the one flagged dependency that actually
+  ships: everything else Snyk reported came from configurations that never reach the APK.
+- The BLE advert's block encryption no longer goes through
+  `Cipher.getInstance("AES/ECB/NoPadding")`. It asks BouncyCastle for the raw block
+  cipher, which is what the CTAP hybrid transport actually specifies. ECB is a rule for
+  chaining several blocks and there has only ever been one, so the transformation string
+  described the operation inaccurately. A test pins the output against the NIST SP
+  800-38A AES-256 vector, so the rewrite is provably byte-identical.
+- Snyk resolves only the runtime classpaths. Left to itself it walks every Gradle
+  configuration, including the Android Gradle Plugin's internal test-platform ones, and
+  reports the gRPC, netty, protobuf and logback stack they carry. None of it is on a
+  compile or runtime classpath, and it accounted for around 160 advisories about code
+  this project never executes.
 - User verification before a hybrid signature is now bound to the Android Keystore.
   `HybridUserVerification` used to release a WebAuthn assertion on the strength of
   `BiometricPrompt`'s success callback, which a rooted device can invoke without anyone
