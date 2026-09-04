@@ -32,19 +32,26 @@ group = "com.pqvault"
 /*
  * Keep vulnerable transitive libraries out of every resolvable configuration, including
  * Android Gradle Plugin's internal Unified Test Platform and ktlint's worker classpath.
- * These are not packaged in the APK, but they do execute in CI and dependency scanners
- * quite correctly inspect them. A single project-wide floor also prevents one Android
+ * These are not packaged in the APK, but they do execute in CI, and dependency scanners
+ * are right to inspect them. A single project-wide floor also prevents one Android
  * module silently resolving an older patch release than another.
  */
 subprojects {
     configurations.configureEach {
         resolutionStrategy.eachDependency { details ->
-            if (details.requested.group == "io.netty") {
+            // netty-tcnative is in the same group but on its own 2.x version line, so
+            // forcing it to a 4.1 version would simply fail to resolve.
+            if (details.requested.group == "io.netty" &&
+                !details.requested.name.startsWith("netty-tcnative")) {
                 details.useVersion(rootProject.nettyVersion)
                 details.because("Netty releases before 4.1.137.Final contain multiple 2026 security vulnerabilities")
             }
+            // Only the runtime artifacts. protobuf-gradle-plugin shares this group and is
+            // versioned 0.9.x, so a group-wide force would break the build.
             if (details.requested.group == "com.google.protobuf" &&
-                details.requested.name == "protobuf-java") {
+                details.requested.name in [
+                    "protobuf-java", "protobuf-javalite", "protobuf-java-util", "protobuf-kotlin",
+                ]) {
                 details.useVersion(rootProject.protobufVersion)
                 details.because("protobuf-java releases before 3.25.5 are vulnerable to CVE-2024-7254")
             }
@@ -64,11 +71,12 @@ subprojects {
 tasks.register("verify") {
     group = "verification"
     description = "Runs every unit test and Android Lint, as CI does"
-    dependsOn ":vault:test", ":app:testDebugUnitTest", ":app:lintDebug"
+    dependsOn ":vault:test", ":app:testDebugUnitTest", ":webauthn:testDebugUnitTest",
+        ":app:lintDebug", ":webauthn:lintDebug", ":rptest:lintDebug"
 }
 
 tasks.register("testAll") {
     group = "verification"
     description = "Runs the unit tests of both modules"
-    dependsOn ":vault:test", ":app:testDebugUnitTest"
+    dependsOn ":vault:test", ":app:testDebugUnitTest", ":webauthn:testDebugUnitTest"
 }

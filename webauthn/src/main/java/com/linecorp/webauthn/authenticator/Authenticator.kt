@@ -441,8 +441,7 @@ internal class Authenticator(
      * @throws WebAuthnException.CredSrcStorageException If there is an error deleting the credential from the database.
      */
     suspend fun cleanup(credId: String) {
-        val keyAlias = credId.toBase64url()
-        SecureExecutionHelper.deleteKey(keyAlias)
+        SecureExecutionHelper.deleteKey(credId)
         try {
             withContext(databaseDispatcher) {
                 db.delete(credId = credId)

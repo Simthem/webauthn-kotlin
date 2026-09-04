@@ -29,6 +29,7 @@ variables:
   # Snyk commonly read the uppercase variants. GitLab itself stays on the local network.
   PROXY_HOST: "10.142.10.10"
   PROXY_PORT: "3128"
+  PQVAULT_PROXY_URL: "http://10.142.10.10:3128"
   HTTP_PROXY: "http://10.142.10.10:3128"
   HTTPS_PROXY: "http://10.142.10.10:3128"
   http_proxy: "http://10.142.10.10:3128"
@@ -56,8 +57,20 @@ variables:
   ANDROID_CMDLINE_TOOLS: "13114758"
   SECURE_LOG_LEVEL: "info"
 
+# A project/group variable has higher precedence than a value declared above. Re-export
+# the known-good tunnel at job runtime, as on the working reference pipeline.
+.export-proxy: &export-proxy |
+  export HTTP_PROXY="$PQVAULT_PROXY_URL"
+  export HTTPS_PROXY="$PQVAULT_PROXY_URL"
+  export http_proxy="$PQVAULT_PROXY_URL"
+  export https_proxy="$PQVAULT_PROXY_URL"
+  export NO_PROXY="localhost,127.0.0.1,::1,10.142.50.50"
+  export no_proxy="$NO_PROXY"
+
 default:
   image: eclipse-temurin:17-jdk
+  before_script:
+    - *export-proxy
   cache:
     key:
       files:
@@ -71,6 +84,7 @@ default:
 
 .android-sdk: &android-sdk
   before_script:
+    - *export-proxy
     - apt-get update -qq && apt-get install -qq -y --no-install-recommends unzip curl
     - |
       if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
@@ -91,6 +105,7 @@ wrapper:checksum:
   stage: verify
   image: eclipse-temurin:17-jdk
   before_script:
+    - *export-proxy
     - apt-get update -qq && apt-get install -qq -y --no-install-recommends curl
   script:
     # One block scalar rather than a list of bare commands. A plain YAML scalar
@@ -127,29 +142,35 @@ test:unit:
   <<: *android-sdk
   stage: test
   script:
-    - ./gradlew --no-daemon :vault:test :app:testDebugUnitTest
+    - ./gradlew --no-daemon :vault:test :app:testDebugUnitTest :webauthn:testDebugUnitTest
   artifacts:
     when: always
     expire_in: 2 weeks
     paths:
       - vault/build/reports/tests/
       - app/build/reports/tests/
+      - webauthn/build/reports/tests/
     reports:
       junit:
         - vault/build/test-results/test/TEST-*.xml
         - app/build/test-results/testDebugUnitTest/TEST-*.xml
+        - webauthn/build/test-results/testDebugUnitTest/TEST-*.xml
 
 test:lint:
   <<: *android-sdk
   stage: test
   script:
-    - ./gradlew --no-daemon :app:lintDebug
+    - ./gradlew --no-daemon :app:lintDebug :webauthn:lintDebug :rptest:lintDebug
   artifacts:
     when: always
     expire_in: 2 weeks
     paths:
       - app/build/reports/lint-results-debug.html
       - app/build/reports/lint-results-debug.sarif
+      - webauthn/build/reports/lint-results-debug.html
+      - webauthn/build/reports/lint-results-debug.sarif
+      - rptest/build/reports/lint-results-debug.html
+      - rptest/build/reports/lint-results-debug.sarif
 
 # GitLab's Gemnasium analyzer resolves the Gradle graph itself, but it needs the Android
 # SDK present to do it, which the stock analyzer image does not have.

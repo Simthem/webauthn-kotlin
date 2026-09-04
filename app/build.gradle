@@ -22,8 +22,8 @@ android {
 
     /*
      * A release build must never inherit the debug key. That key is the same on every
-     * machine that ever ran the Android SDK, and for a credential provider it is not just
-     * a packaging detail: the signing certificate is the app's identity. It is what
+     * machine that ever ran the Android SDK, and for a credential provider it is more
+     * than a packaging detail: the signing certificate is the app's identity. It is what
      * apk-key-hash origins are derived from, what sites pin in assetlinks.json, and what
      * decides whether an update may replace this install. Shipping a release anyone can
      * sign an update for defeats all three.
@@ -103,6 +103,11 @@ android {
         // French, and a half-translated security warning is worse than an untranslated
         // one because it looks finished.
         fatal += ["MissingTranslation"]
+        // TypographyEllipsis asks for the single-character ellipsis in place of three
+        // dots. The sources of this project are kept to plain ASCII on purpose, so the
+        // check would fire on every progress string and never be acted on. The three
+        // dots render identically in the app.
+        disable += ["TypographyEllipsis"]
     }
 
     testOptions {
@@ -152,8 +157,8 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion"
 
     // Credential Manager provider APIs. Deliberately NOT credentials-play-services-auth:
-    // that artifact routes through Google Play services, which is exactly what is absent
-    // on a de-Googled phone. The provider side lives in the base artifact.
+    // that artifact routes through Google Play services, the one thing absent from a
+    // de-Googled phone. The provider side lives in the base artifact.
     implementation "androidx.credentials:credentials:$credentialsVersion"
 
     implementation "androidx.biometric:biometric:$biometricVersion"

@@ -33,8 +33,8 @@
         CredentialDependency is suppressed on purpose. Lint asks for
         androidx.credentials:credentials-play-services-auth, which routes credential
         requests through Google Play services. On a de-Googled phone that artifact is
-        dead weight at best, and the whole point of this app is to work where Play
-        services is absent. The provider side of the API lives in the base artifact.
+        dead weight at best, and this app exists to work where Play services is absent.
+        The provider side of the API lives in the base artifact.
     -->
     <application
         android:allowBackup="false"

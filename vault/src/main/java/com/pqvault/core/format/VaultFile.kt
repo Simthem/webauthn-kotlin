@@ -71,7 +71,10 @@ object VaultFile {
         var offset = 0
 
         fun need(n: Int, what: String) {
-            if (offset + n > bytes.size) {
+            // Subtract before comparing instead of adding offset+n: both values originate
+            // in the file and an overflowing addition could turn a truncated range into a
+            // negative number that slips through this check.
+            if (n < 0 || offset > bytes.size || n > bytes.size - offset) {
                 throw MalformedVaultException("truncated vault: needed $n more bytes for $what")
             }
         }
@@ -105,6 +108,9 @@ object VaultFile {
         }
         need(signatureLength, "signature")
         val signature = bytes.copyOfRange(offset, offset + signatureLength).also { offset += signatureLength }
+        if (offset != bytes.size) {
+            throw MalformedVaultException("trailing data after vault signature")
+        }
 
         val headerJson = String(headerBytes, Charsets.UTF_8)
         return Raw(

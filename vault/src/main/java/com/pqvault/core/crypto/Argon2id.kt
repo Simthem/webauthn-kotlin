@@ -19,12 +19,18 @@ object Argon2id {
     /**
      * Upper bounds, not tuning targets. Cost parameters arrive inside a vault header, so
      * a hostile or corrupt file could otherwise ask us to allocate terabytes and take the
-     * app down with it. A phone that legitimately needs more than 1 GiB or 32 passes does
-     * not exist, so refusing beyond that costs nothing and removes the denial of service.
+     * app down with it. The shipping profile uses 64 MiB; allowing twice that leaves room
+     * for a future migration without accepting a working set likely to exhaust an Android
+     * application's heap. Iteration and lane ceilings follow the same rule.
      */
-    const val MAX_MEMORY_KIB = 1024 * 1024
-    const val MAX_ITERATIONS = 32
-    const val MAX_PARALLELISM = 64
+    const val MAX_MEMORY_KIB = 128 * 1024
+    const val MAX_ITERATIONS = 10
+    const val MAX_PARALLELISM = 8
+
+    private const val MIN_SALT_BYTES = 16
+    private const val MAX_SALT_BYTES = 64
+    private const val MIN_OUTPUT_BYTES = 16
+    private const val MAX_OUTPUT_BYTES = 64
 
     data class Params(
         val memoryKib: Int,
@@ -47,7 +53,12 @@ object Argon2id {
         params: Params = MOBILE_DEFAULT,
         outputLength: Int = 32,
     ): ByteArray {
-        require(salt.size >= 16) { "salt must be at least 16 bytes, was ${salt.size}" }
+        require(salt.size in MIN_SALT_BYTES..MAX_SALT_BYTES) {
+            "salt must be between $MIN_SALT_BYTES and $MAX_SALT_BYTES, was ${salt.size}"
+        }
+        require(outputLength in MIN_OUTPUT_BYTES..MAX_OUTPUT_BYTES) {
+            "outputLength must be between $MIN_OUTPUT_BYTES and $MAX_OUTPUT_BYTES, was $outputLength"
+        }
 
         val generator = Argon2BytesGenerator()
         generator.init(

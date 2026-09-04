@@ -18,6 +18,10 @@ import java.security.SecureRandom
 
 private const val PASSPHRASE_WRAP_AAD = "pqvault/recipient/passphrase/v1"
 private const val DEVICE_WRAP_AAD = "pqvault/recipient/device/v1"
+private const val WRAPPED_VMK_SIZE = XChaCha20Poly1305.KEY_SIZE + XChaCha20Poly1305.TAG_SIZE
+private const val MIN_KDF_SALT_SIZE = 16
+private const val MAX_KDF_SALT_SIZE = 64
+private const val MAX_RECIPIENTS = 64
 
 /**
  * Everything needed to read and modify a vault that has been successfully unlocked.
@@ -86,27 +90,30 @@ class UnlockedVault internal constructor(
         now: Long = System.currentTimeMillis(),
     ) {
         val encapsulation = HybridKem.encapsulate(devicePublicKey, random)
-        val wrapNonce = ByteArray(XChaCha20Poly1305.NONCE_SIZE).also { random.nextBytes(it) }
-        val wrapped = XChaCha20Poly1305.seal(
-            key = encapsulation.sharedSecret,
-            nonce = wrapNonce,
-            plaintext = vmk,
-            aad = DEVICE_WRAP_AAD.toByteArray(),
-        )
-        recipients.removeAll { it is Recipient.Device && it.deviceId == deviceId }
-        recipients.add(
-            Recipient.Device(
-                deviceId = deviceId,
-                label = label,
-                kemPublicKey = Base64Url.encode(devicePublicKey.encoded()),
-                kemCiphertext = Base64Url.encode(encapsulation.ciphertext),
-                wrappedKey = Base64Url.encode(wrapped),
-                wrapNonce = Base64Url.encode(wrapNonce),
-            ),
-        )
-        devices.removeAll { it.deviceId == deviceId }
-        devices.add(DeviceRecord(deviceId, label, Base64Url.encode(devicePublicKey.encoded()), now))
-        encapsulation.sharedSecret.fill(0)
+        try {
+            val wrapNonce = ByteArray(XChaCha20Poly1305.NONCE_SIZE).also { random.nextBytes(it) }
+            val wrapped = XChaCha20Poly1305.seal(
+                key = encapsulation.sharedSecret,
+                nonce = wrapNonce,
+                plaintext = vmk,
+                aad = DEVICE_WRAP_AAD.toByteArray(),
+            )
+            recipients.removeAll { it is Recipient.Device && it.deviceId == deviceId }
+            recipients.add(
+                Recipient.Device(
+                    deviceId = deviceId,
+                    label = label,
+                    kemPublicKey = Base64Url.encode(devicePublicKey.encoded()),
+                    kemCiphertext = Base64Url.encode(encapsulation.ciphertext),
+                    wrappedKey = Base64Url.encode(wrapped),
+                    wrapNonce = Base64Url.encode(wrapNonce),
+                ),
+            )
+            devices.removeAll { it.deviceId == deviceId }
+            devices.add(DeviceRecord(deviceId, label, Base64Url.encode(devicePublicKey.encoded()), now))
+        } finally {
+            encapsulation.sharedSecret.fill(0)
+        }
     }
 
     fun revokeDevice(deviceId: String) {
@@ -119,6 +126,7 @@ class UnlockedVault internal constructor(
 
     /** Serialises, encrypts, signs and frames the vault, bumping the version counter. */
     fun serialize(random: SecureRandom = SecureRandom()): ByteArray {
+        check(vaultVersion < Long.MAX_VALUE) { "vault version counter exhausted" }
         vaultVersion += 1
 
         val content = VaultContent(
@@ -137,12 +145,17 @@ class UnlockedVault internal constructor(
         )
         val headerJson = Vault.json.encodeToString(VaultHeader.serializer(), header)
 
-        val ciphertext = XChaCha20Poly1305.seal(
-            key = vmk,
-            nonce = contentNonce,
-            plaintext = Vault.json.encodeToString(VaultContent.serializer(), content).toByteArray(),
-            aad = VaultFile.contentAad(headerJson),
-        )
+        val contentBytes = Vault.json.encodeToString(VaultContent.serializer(), content).toByteArray()
+        val ciphertext = try {
+            XChaCha20Poly1305.seal(
+                key = vmk,
+                nonce = contentNonce,
+                plaintext = contentBytes,
+                aad = VaultFile.contentAad(headerJson),
+            )
+        } finally {
+            contentBytes.fill(0)
+        }
         val signature = HybridSignature.sign(
             signingPrivateKey,
             VaultFile.signedBytes(headerJson, ciphertext),
@@ -243,9 +256,12 @@ object Vault {
         passphrase: CharArray,
         pinnedSigningKey: ByteArray? = null,
         lastSeenVersion: Long = 0,
-    ): OpenResult = openInternal(fileBytes, pinnedSigningKey, lastSeenVersion) { header, aad ->
+    ): OpenResult = openInternal(fileBytes, pinnedSigningKey, lastSeenVersion) { header, _ ->
         val recipient = header.recipients.filterIsInstance<Recipient.Passphrase>().firstOrNull()
             ?: return@openInternal null
+        if (recipient.kdf.algorithm != "argon2id") {
+            throw MalformedVaultContent("unsupported KDF algorithm ${recipient.kdf.algorithm}")
+        }
         // The cost parameters are attacker-reachable: they arrive in the file. Params
         // rejects anything absurd, and a failure here is a malformed file rather than a
         // wrong passphrase, so it must not be swallowed as one.
@@ -258,16 +274,32 @@ object Vault {
         } catch (e: IllegalArgumentException) {
             throw MalformedVaultContent("unusable KDF parameters: ${e.message}")
         }
+        val salt = decodeBase64Field(
+            name = "KDF salt",
+            encoded = recipient.kdf.salt,
+            minSize = MIN_KDF_SALT_SIZE,
+            maxSize = MAX_KDF_SALT_SIZE,
+        )
+        val wrapNonce = decodeBase64Field(
+            name = "passphrase wrap nonce",
+            encoded = recipient.wrapNonce,
+            exactSize = XChaCha20Poly1305.NONCE_SIZE,
+        )
+        val wrappedKey = decodeBase64Field(
+            name = "passphrase wrapped key",
+            encoded = recipient.wrappedKey,
+            exactSize = WRAPPED_VMK_SIZE,
+        )
         val kek = Argon2id.derive(
             passphrase = passphrase,
-            salt = Base64Url.decode(recipient.kdf.salt),
+            salt = salt,
             params = params,
         )
         try {
             XChaCha20Poly1305.open(
                 key = kek,
-                nonce = Base64Url.decode(recipient.wrapNonce),
-                ciphertext = Base64Url.decode(recipient.wrappedKey),
+                nonce = wrapNonce,
+                ciphertext = wrappedKey,
                 aad = PASSPHRASE_WRAP_AAD.toByteArray(),
             )
         } finally {
@@ -288,16 +320,37 @@ object Vault {
             .filterIsInstance<Recipient.Device>()
             .firstOrNull { it.deviceId == deviceId }
             ?: return@openInternal null
+        val enrolledPublicKey = decodeBase64Field(
+            name = "device public key",
+            encoded = recipient.kemPublicKey,
+            exactSize = HybridKem.X25519_PUBLIC_SIZE + HybridKem.ML_KEM_768_PUBLIC_SIZE,
+        )
+        if (!enrolledPublicKey.contentEquals(devicePublicKey.encoded())) return@openInternal null
+        val kemCiphertext = decodeBase64Field(
+            name = "device KEM ciphertext",
+            encoded = recipient.kemCiphertext,
+            exactSize = HybridKem.X25519_PUBLIC_SIZE + HybridKem.ML_KEM_768_CIPHERTEXT_SIZE,
+        )
+        val wrapNonce = decodeBase64Field(
+            name = "device wrap nonce",
+            encoded = recipient.wrapNonce,
+            exactSize = XChaCha20Poly1305.NONCE_SIZE,
+        )
+        val wrappedKey = decodeBase64Field(
+            name = "device wrapped key",
+            encoded = recipient.wrappedKey,
+            exactSize = WRAPPED_VMK_SIZE,
+        )
         val shared = HybridKem.decapsulate(
             devicePrivateKey,
             devicePublicKey,
-            Base64Url.decode(recipient.kemCiphertext),
+            kemCiphertext,
         )
         try {
             XChaCha20Poly1305.open(
                 key = shared,
-                nonce = Base64Url.decode(recipient.wrapNonce),
-                ciphertext = Base64Url.decode(recipient.wrappedKey),
+                nonce = wrapNonce,
+                ciphertext = wrappedKey,
                 aad = DEVICE_WRAP_AAD.toByteArray(),
             )
         } finally {
@@ -339,10 +392,21 @@ object Vault {
             return OpenResult.Malformed("unreadable header: ${e.message}")
         }
 
-        if (header.formatVersion > VaultFile.FORMAT_VERSION) {
+        if (header.formatVersion != VaultFile.FORMAT_VERSION) {
             return OpenResult.Malformed(
-                "vault format version ${header.formatVersion} is newer than this app supports",
+                "unsupported vault format version ${header.formatVersion}",
             )
+        }
+        if (header.vaultVersion < 0) return OpenResult.Malformed("negative vault version")
+        if (header.recipients.size > MAX_RECIPIENTS) {
+            return OpenResult.Malformed("too many vault recipients")
+        }
+        if (header.recipients.count { it is Recipient.Passphrase } > 1) {
+            return OpenResult.Malformed("multiple passphrase recipients are not supported")
+        }
+        val deviceIds = header.recipients.filterIsInstance<Recipient.Device>().map { it.deviceId }
+        if (deviceIds.size != deviceIds.toSet().size) {
+            return OpenResult.Malformed("duplicate device recipients")
         }
 
         val signingPublicKeyBytes = try {
@@ -355,8 +419,17 @@ object Vault {
             return OpenResult.UnknownSigner
         }
 
-        val signingPublicKey = HybridSignature.PublicKey.decode(signingPublicKeyBytes)
-        if (!HybridSignature.verify(signingPublicKey, raw.signedBytes, raw.signature)) {
+        val signingPublicKey = try {
+            HybridSignature.PublicKey.decode(signingPublicKeyBytes)
+        } catch (e: IllegalArgumentException) {
+            return OpenResult.Malformed("unusable signing public key: ${e.message}")
+        }
+        val signatureValid = try {
+            HybridSignature.verify(signingPublicKey, raw.signedBytes, raw.signature)
+        } catch (_: RuntimeException) {
+            false
+        }
+        if (!signatureValid) {
             return OpenResult.SignatureInvalid
         }
 
@@ -376,12 +449,32 @@ object Vault {
             OpenResult.WrongPassphrase
         }
 
-        val plaintext = XChaCha20Poly1305.open(
-            key = vmk,
-            nonce = Base64Url.decode(header.contentNonce),
-            ciphertext = raw.content,
-            aad = raw.contentAad,
-        ) ?: run {
+        if (vmk.size != XChaCha20Poly1305.KEY_SIZE) {
+            vmk.fill(0)
+            return OpenResult.Malformed("recovered vault key has an invalid size")
+        }
+
+        val contentNonce = try {
+            decodeBase64Field(
+                name = "content nonce",
+                encoded = header.contentNonce,
+                exactSize = XChaCha20Poly1305.NONCE_SIZE,
+            )
+        } catch (e: MalformedVaultContent) {
+            vmk.fill(0)
+            return OpenResult.Malformed(e.message ?: "malformed content nonce")
+        }
+        val plaintext = try {
+            XChaCha20Poly1305.open(
+                key = vmk,
+                nonce = contentNonce,
+                ciphertext = raw.content,
+                aad = raw.contentAad,
+            )
+        } catch (e: RuntimeException) {
+            vmk.fill(0)
+            return OpenResult.Malformed("content could not be decrypted: ${e.message}")
+        } ?: run {
             vmk.fill(0)
             return OpenResult.Malformed("content failed to authenticate under the recovered key")
         }
@@ -395,16 +488,42 @@ object Vault {
             plaintext.fill(0)
         }
 
-        return OpenResult.Success(
-            vault = UnlockedVault(
+        val unlocked = try {
+            UnlockedVault(
                 vmk = vmk,
                 vaultVersion = header.vaultVersion,
                 recipients = header.recipients.toMutableList(),
                 content = content,
-                signingPublicKeyEncoded = signingPublicKeyBytes,
-            ),
-            signingPublicKey = signingPublicKeyBytes,
+                signingPublicKeyEncoded = signingPublicKeyBytes.copyOf(),
+            )
+        } catch (e: RuntimeException) {
+            vmk.fill(0)
+            return OpenResult.Malformed("unusable decrypted content: ${e.message}")
+        }
+
+        return OpenResult.Success(
+            vault = unlocked,
+            signingPublicKey = signingPublicKeyBytes.copyOf(),
         )
+    }
+
+    private fun decodeBase64Field(
+        name: String,
+        encoded: String,
+        exactSize: Int? = null,
+        minSize: Int = exactSize ?: 0,
+        maxSize: Int = exactSize ?: Int.MAX_VALUE,
+    ): ByteArray {
+        val decoded = try {
+            Base64Url.decode(encoded)
+        } catch (_: IllegalArgumentException) {
+            throw MalformedVaultContent("$name is not valid base64url")
+        }
+        if (decoded.size !in minSize..maxSize) {
+            val expected = exactSize?.let { "$it" } ?: "$minSize..$maxSize"
+            throw MalformedVaultContent("$name must be $expected bytes, was ${decoded.size}")
+        }
+        return decoded
     }
 
     private fun wrapForPassphrase(

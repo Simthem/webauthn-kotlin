@@ -22,8 +22,13 @@ import android.content.Intent
 import android.hardware.biometrics.BiometricPrompt
 import android.os.Bundle
 import android.util.Log
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.IntentCompat
 import com.linecorp.webauthn.model.Fido2PromptInfo
+import java.lang.ref.WeakReference
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -46,6 +51,12 @@ class KeyguardManagerWrapper {
             throw KeyguardNotSecuredException("Keyguard not secured")
         }
 
+        // Deprecated in API 29 in favour of BiometricPrompt with an allowed authenticator of
+        // DEVICE_CREDENTIAL. That replacement needs an Activity to host the prompt, while this
+        // wrapper is called with a plain Context and starts its own transparent Activity to
+        // carry the result back. Migrating means rewriting that flow, which is the one path a
+        // user takes to unlock a credential, so it is deliberately left for its own change.
+        @Suppress("DEPRECATION")
         val intent = keyguardManager.createConfirmDeviceCredentialIntent(
             fido2PromptInfo?.title ?: "Device Credential Authentication",
             fido2PromptInfo?.description ?: "Input your Fingerprint or device credential to ensure it's you!"
@@ -54,7 +65,10 @@ class KeyguardManagerWrapper {
         Log.d("KeyguardManagerWrapper", "Starting AuthenticationActivity with intent")
 
         return suspendCancellableCoroutine { continuation ->
-            AuthenticationActivity.start(context, intent) { result, errorCode ->
+            val requestId = AuthenticationActivity.start(context, intent) { result, errorCode ->
+                if (!continuation.isActive) {
+                    return@start
+                }
                 if (result) {
                     Log.d("KeyguardManagerWrapper", "Authentication succeeded")
                     continuation.resume(true)
@@ -68,59 +82,111 @@ class KeyguardManagerWrapper {
                     )
                 }
             }
+            continuation.invokeOnCancellation {
+                AuthenticationActivity.cancel(requestId)
+            }
         }
     }
 
     class AuthenticationActivity : AppCompatActivity() {
 
         companion object {
-            private const val REQUEST_CODE_CONFIRM_DEVICE_CREDENTIAL = 1
-            private var callback: ((Boolean, Int?) -> Unit)? = null
+            private const val EXTRA_AUTH_INTENT = "com.linecorp.webauthn.extra.AUTH_INTENT"
+            private const val EXTRA_REQUEST_ID = "com.linecorp.webauthn.extra.REQUEST_ID"
+            private val callbacks = ConcurrentHashMap<String, (Boolean, Int?) -> Unit>()
+            private val activities = ConcurrentHashMap<String, WeakReference<AuthenticationActivity>>()
 
-            fun start(context: Context, intent: Intent, callback: (Boolean, Int?) -> Unit) {
-                this.callback = callback
+            internal fun start(context: Context, intent: Intent, callback: (Boolean, Int?) -> Unit): String {
+                val requestId = UUID.randomUUID().toString()
+                callbacks[requestId] = callback
                 val activityIntent = Intent(context, AuthenticationActivity::class.java).apply {
-                    putExtra("fido2_auth_intent", intent)
+                    putExtra(EXTRA_AUTH_INTENT, intent)
+                    putExtra(EXTRA_REQUEST_ID, requestId)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 Log.d("AuthenticationActivity", "Starting activity with intent")
-                context.startActivity(activityIntent)
+                try {
+                    context.startActivity(activityIntent)
+                } catch (error: Throwable) {
+                    callbacks.remove(requestId)
+                    throw error
+                }
+                return requestId
             }
+
+            internal fun cancel(requestId: String) {
+                callbacks.remove(requestId)
+                activities.remove(requestId)?.get()?.let { activity ->
+                    activity.runOnUiThread { activity.finish() }
+                }
+            }
+
+            private fun isPending(requestId: String): Boolean = callbacks.containsKey(requestId)
+
+            private fun attach(requestId: String, activity: AuthenticationActivity) {
+                activities[requestId] = WeakReference(activity)
+            }
+
+            private fun detach(requestId: String, activity: AuthenticationActivity) {
+                activities.computeIfPresent(requestId) { _, reference ->
+                    if (reference.get() === activity) null else reference
+                }
+            }
+
+            private fun complete(requestId: String, result: Boolean, errorCode: Int?) {
+                activities.remove(requestId)
+                callbacks.remove(requestId)?.invoke(result, errorCode)
+            }
+        }
+
+        private var requestId: String? = null
+        private var requestCompleted = false
+
+        private val confirmCredential = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            Log.d("AuthenticationActivity", "Received result: ${result.resultCode}")
+            when (result.resultCode) {
+                RESULT_OK -> finishRequest(true, null)
+                RESULT_CANCELED -> finishRequest(false, BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED)
+                else -> finishRequest(false, BiometricPrompt.BIOMETRIC_ERROR_UNABLE_TO_PROCESS)
+            }
+            finish()
         }
 
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
-            val intent = intent.getParcelableExtra<Intent>("fido2_auth_intent")
-            if (intent != null) {
+            val pendingRequestId = intent.getStringExtra(EXTRA_REQUEST_ID)
+            if (pendingRequestId == null || !isPending(pendingRequestId)) {
+                finish()
+                return
+            }
+            requestId = pendingRequestId
+            attach(pendingRequestId, this)
+
+            val authenticationIntent = IntentCompat.getParcelableExtra(intent, EXTRA_AUTH_INTENT, Intent::class.java)
+            if (authenticationIntent != null) {
                 Log.d("AuthenticationActivity", "Starting activity for result")
-                startActivityForResult(intent, REQUEST_CODE_CONFIRM_DEVICE_CREDENTIAL)
+                confirmCredential.launch(authenticationIntent)
             } else {
                 Log.d("AuthenticationActivity", "Intent is null, finishing activity")
-                callback?.invoke(false, BiometricPrompt.BIOMETRIC_ERROR_UNABLE_TO_PROCESS)
+                finishRequest(false, BiometricPrompt.BIOMETRIC_ERROR_UNABLE_TO_PROCESS)
                 finish()
             }
         }
 
-        override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-            super.onActivityResult(requestCode, resultCode, data)
-            if (requestCode == REQUEST_CODE_CONFIRM_DEVICE_CREDENTIAL) {
-                Log.d("AuthenticationActivity", "Received result: $resultCode")
-                when (resultCode) {
-                    RESULT_OK -> {
-                        callback?.invoke(true, null)
-                        Log.d("AuthenticationActivity", "Authentication succeeded")
-                    }
-                    RESULT_CANCELED -> {
-                        Log.d("AuthenticationActivity", "Authentication canceled")
-                        callback?.invoke(false, BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED)
-                    }
-                    else -> {
-                        Log.d("AuthenticationActivity", "Authentication failed")
-                        callback?.invoke(false, BiometricPrompt.BIOMETRIC_ERROR_UNABLE_TO_PROCESS)
-                    }
-                }
+        override fun onDestroy() {
+            if (!isChangingConfigurations && !requestCompleted) {
+                finishRequest(false, BiometricPrompt.BIOMETRIC_ERROR_CANCELED)
             }
-            finish()
+            requestId?.let { detach(it, this) }
+            super.onDestroy()
+        }
+
+        private fun finishRequest(result: Boolean, errorCode: Int?) {
+            if (requestCompleted) return
+            requestCompleted = true
+            requestId?.let { complete(it, result, errorCode) }
         }
     }
 }

@@ -153,8 +153,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val allowlist = InstalledBrowsers.buildAllowlist(
             current.browsers.filter { it.packageName in next },
         )
-        settingsStore.save(settingsStore.load().copy(privilegedBrowserAllowlist = allowlist))
-        _state.update { it.copy(trustedBrowsers = next, settings = settingsStore.load()) }
+        val saved = settingsStore.update { it.copy(privilegedBrowserAllowlist = allowlist) }
+        _state.update { it.copy(trustedBrowsers = next, settings = saved) }
     }
 
     fun showPairingCode() {
@@ -196,12 +196,12 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun onPairingCodeScanned(text: String) {
         when (val result = PairingPayload.decode(text)) {
             is PairingPayload.ParseResult.Valid -> {
-                settingsStore.save(PairingPayload.applyTo(settingsStore.load(), result.payload))
+                val paired = settingsStore.update { PairingPayload.applyTo(it, result.payload) }
                 VaultSyncWorker.schedule(getApplication())
                 _state.update {
                     it.copy(
                         overlay = Overlay.None,
-                        settings = settingsStore.load(),
+                        settings = paired,
                         message = string(R.string.pairing_success),
                     )
                 }
@@ -585,8 +585,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAutoLockSeconds(seconds: Int) {
-        val updated = settingsStore.load().copy(autoLockSeconds = seconds)
-        settingsStore.save(updated)
+        val updated = settingsStore.update { it.copy(autoLockSeconds = seconds) }
         repository.touch()
         _state.update { it.copy(settings = updated, message = string(R.string.settings_saved)) }
     }

@@ -78,6 +78,26 @@ encrypted file instead. The two models are incompatible: credentials created wit
   full report, uploaded as an artifact. Listing "a newer version of camera-view is
   available" beside a hardcoded secret, at the same weight, makes the list unreadable
   rather than anyone safer.
+- CI covers every module rather than two. The unit test job adds `:webauthn`, Android
+  Lint adds `:webauthn` and `:rptest`, and the CodeQL build compiles all four. The passkey
+  authenticator and the relying-party harness were shipping without a single check running
+  over them, which is the opposite of where the attention belongs.
+- Android Lint emits SARIF from `:webauthn` and `:rptest` as well, and the GitHub job
+  merges the three reports before filtering them down to errors. The GitLab artefact list
+  already named those two files, which were never produced.
+- GitLab jobs re-export the HTTP proxy at job runtime. A project or group variable
+  outranks the pipeline's own `variables:` block, so a stale value there silently replaced
+  the working tunnel and every job that reached the network failed on it.
+- `getAllAccounts` returned every credential four times. It looped over both
+  authentication methods and both attestation formats, and each of those four
+  authenticators reads the single database it was handed. `deleteAllAccounts` had the same
+  shape and, worse, removed the database rows while leaving the Keystore keys behind. It
+  now deletes the key alongside each credential and takes the same lock as every other
+  mutating operation.
+- The two remaining deprecated framework calls in `:webauthn` carry an explicit
+  suppression and the reason it is there. Both replacements need API 30 and the module
+  still declares `minSdk 28`, so the suppressions say what has to change before the calls
+  can go.
 
 ### Removed
 
@@ -133,6 +153,36 @@ encrypted file instead. The two models are incompatible: credentials created wit
   `pubKeyCredParams`, and no relying party can verify ML-DSA today. Post-quantum is
   applied where it changes the outcome, meaning the key material that sits on a server for
   years.
+- The Snyk job calls the `snyk-linux` binary directly instead of the `snyk` shell wrapper
+  the setup action installs. That wrapper runs `eval snyk-linux $@`, so
+  `--configuration-matching='^(releaseRuntimeClasspath|runtimeClasspath)$'` reached bash as
+  a subshell and a pipe rather than as a single argument. The step died on a syntax error,
+  no SARIF was written, and 177 dependency alerts stayed open on the Security tab against
+  versions this repository had already raised.
+- The version floor now also covers `protobuf-java-util`, `protobuf-javalite` and
+  `protobuf-kotlin`, and skips `netty-tcnative`, which shares the `io.netty` group but is
+  versioned on its own 2.x line and would simply fail to resolve at 4.1.
+- Settings are written through `AtomicFile`, read and written under one process-wide lock,
+  and bounded in size. `load().copy(...)` followed by `save(...)` from two `SecureSettings`
+  instances could interleave, and the loser silently restored an old pinned signing key or
+  rollback watermark. Every read-modify-write call site goes through `update {}` instead.
+- `Authenticator.cleanup` deleted the wrong Keystore alias. Keys are created under the
+  credential id, while cleanup asked for its base64url re-encoding, so the private key
+  outlived the credential that named it.
+- COSE EC2 public keys encode their coordinates as fixed 32-byte big-endian values.
+  `BigInteger.toByteArray()` prepends a zero byte when the high bit is set and drops
+  leading zeroes otherwise, so a coordinate could reach a relying party 31 or 33 bytes
+  long, which is not what the COSE key format allows.
+- Argon2id ceilings drop to 128 MiB, 10 passes and 8 lanes, from 1 GiB, 32 and 64. Those
+  parameters arrive inside the vault header, and the old ceiling still let a hostile file
+  ask an Android process for a gigabyte. Salt and output lengths are bounded as well.
+- The vault framing rejects trailing bytes after the signature, and its bounds check
+  subtracts instead of adding, so a length read out of the file cannot overflow into a
+  value that passes the check.
+- `AuthenticationActivity` is no longer exported. The library starts it from its own
+  process, so until now any other application could launch the device-credential prompt.
+- The biometric callbacks check `continuation.isActive` before resuming. The framework may
+  call back more than once, and resuming a continuation that has already completed throws.
 
 ## 1.1.3 (2025-09-16)
 

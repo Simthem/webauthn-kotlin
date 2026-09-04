@@ -98,6 +98,11 @@ class DeviceCredentialKeyGenerator : Fido2KeyGenerator() {
                             KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
                         )
                     } else {
+                        // Replaced by setUserAuthenticationParameters in API 30, which the
+                        // branch above uses. This module still declares minSdk 28, so API 28
+                        // and 29 have no other way to bound how long an unlock stays valid.
+                        // Delete this branch, and the suppression, if minSdk ever reaches 30.
+                        @Suppress("DEPRECATION")
                         setUserAuthenticationValidityDurationSeconds(userAuthenticationValidityDurationSeconds)
                     }
                     build()

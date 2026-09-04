@@ -399,9 +399,9 @@ because no legitimate situation produces one.
 
 **The vault keeps locking while I am using it.**
 The idle lock defaults to three minutes. Change it in settings under *This device*,
-*Lock when idle*, or set it to *Never*. Note that the system querying the provider for
-available credentials does not count as activity: only touching the app and actually
-signing in with a passkey do.
+*Lock when idle*, or set it to *Never*. The system querying the provider for available
+credentials does not count as activity: only touching the app and signing in with a
+passkey do.
 
 **The pairing code says it is too long for a QR code.**
 Your WebDAV address is unusually long. Shorten it, for example by putting the vault nearer
@@ -454,24 +454,24 @@ Your `JAVA_HOME` points at a JRE. See [Requirements](#requirements).
 
 ```
 pqvault/
-├── vault/      Vault core in pure Kotlin, testable without Android
-│   ├── crypto/     XChaCha20-Poly1305, Argon2id, hybrid KEM and signature
-│   ├── format/     File format, header, recipients
-│   ├── merge/      Merging and conflict resolution
-│   ├── sync/       WebDAV engine, independent of the HTTP stack
-│   ├── webauthn/   Software authenticator, COSE, authenticatorData
-│   └── hybrid/     FIDO QR, caBLE key derivation, Noise and CTAP2 codec
-├── app/        Android application
-│   ├── provider/   CredentialProviderService, caller verification
-│   ├── pairing/    QR pairing payload, encoder and scanner
-│   ├── hybrid/     WebSocket tunnel and encrypted BLE proximity advert
-│   ├── data/       Repository, encrypted settings, device identity
-│   ├── security/   Biometric unlock
-│   ├── sync/       OkHttp WebDAV client, periodic worker
-│   └── ui/         Compose interface
-├── rptest/     Development harness: a fake relying party that requests a passkey
-├── webauthn/   Original LINE library, kept but unused
-└── docs/       Architecture, original library README
+  vault/        Vault core in pure Kotlin, testable without Android
+    crypto/     XChaCha20-Poly1305, Argon2id, hybrid KEM and signature
+    format/     File format, header, recipients
+    merge/      Merging and conflict resolution
+    sync/       WebDAV engine, independent of the HTTP stack
+    webauthn/   Software authenticator, COSE, authenticatorData
+    hybrid/     FIDO QR, caBLE key derivation, Noise and CTAP2 codec
+  app/          Android application
+    provider/   CredentialProviderService, caller verification
+    pairing/    QR pairing payload, encoder and scanner
+    hybrid/     WebSocket tunnel and encrypted BLE proximity advert
+    data/       Repository, encrypted settings, device identity
+    security/   Biometric unlock
+    sync/       OkHttp WebDAV client, periodic worker
+    ui/         Compose interface
+  rptest/       Development harness: a fake relying party that requests a passkey
+  webauthn/     Original LINE library, kept but unused
+  docs/         Architecture, original library README
 ```
 
 The `vault` module does not depend on Android. That is deliberate: all the delicate logic,

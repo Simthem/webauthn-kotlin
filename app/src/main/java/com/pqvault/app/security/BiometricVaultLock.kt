@@ -24,9 +24,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * key in a hardware-bound AES key that only releases after a fingerprint, so the phone
  * can reopen the vault without the passphrase being typed or held anywhere.
  *
- * Crucially it wraps a *copy* and changes nothing about the vault file itself. The
- * passphrase stays the root of trust and the vault stays portable, which is exactly the
- * property the upstream library lost by putting the passkeys themselves in the Keystore.
+ * It wraps a *copy* and changes nothing about the vault file itself. The passphrase
+ * stays the root of trust and the vault stays portable, the property the upstream
+ * library lost by putting the passkeys themselves in the Keystore.
  * Losing this phone loses this shortcut, not the passkeys.
  */
 class BiometricVaultLock(private val context: Context) {

@@ -22,7 +22,7 @@
     <string name="passphrase_hint">At least 12 characters. A string of random words (diceware) beats a complicated one.</string>
     <string name="confirm">Confirm</string>
     <string name="create_vault">Create vault</string>
-    <string name="creating">Creating…</string>
+    <string name="creating">Creating...</string>
 
     <!-- Unlock -->
     <string name="vault_locked">Vault locked</string>
@@ -111,9 +111,9 @@
     <string name="hybrid_invalid_code">This is not a valid FIDO passkey QR code. Point the camera at the code shown by the browser.</string>
     <string name="hybrid_unlock_to_continue">Unlock your vault to continue the scanned passkey request.</string>
     <string name="hybrid_title">Passkey request</string>
-    <string name="hybrid_connecting">Connecting to the encrypted tunnel…</string>
-    <string name="hybrid_waiting_computer">Waiting for the other device nearby…</string>
-    <string name="hybrid_securing">Securing the connection…</string>
+    <string name="hybrid_connecting">Connecting to the encrypted tunnel...</string>
+    <string name="hybrid_waiting_computer">Waiting for the other device nearby...</string>
+    <string name="hybrid_securing">Securing the connection...</string>
     <string name="hybrid_create_question">Create a passkey for %s?</string>
     <string name="hybrid_sign_question">Sign in to %s?</string>
     <string name="hybrid_account">Account: %s</string>

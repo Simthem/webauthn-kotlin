@@ -20,7 +20,7 @@
     <string name="passphrase_hint">12 caractères minimum. Une suite de mots aléatoires (diceware) vaut mieux qu\'un mot compliqué.</string>
     <string name="confirm">Confirmer</string>
     <string name="create_vault">Créer le coffre</string>
-    <string name="creating">Création…</string>
+    <string name="creating">Création...</string>
 
     <!-- Unlock -->
     <string name="vault_locked">Coffre verrouillé</string>
@@ -49,7 +49,7 @@
     <string name="action_delete">Supprimer</string>
     <string name="no_cloud_configured">Aucun cloud configuré : vos passkeys ne sont que sur cet appareil.</string>
     <string name="empty_title">Aucune passkey</string>
-    <string name="empty_body">Choisissez « PQ Vault » lorsqu\'un site vous propose de créer une passkey.</string>
+    <string name="empty_body">Choisissez "PQ Vault" lorsqu\'un site vous propose de créer une passkey.</string>
     <plurals name="usage_count">
         <item quantity="one">%d usage</item>
         <item quantity="many">%d usages</item>
@@ -111,9 +111,9 @@
     <string name="hybrid_invalid_code">Ce code n\'est pas un QR code FIDO valide. Visez le code affiché par le navigateur.</string>
     <string name="hybrid_unlock_to_continue">Déverrouillez votre coffre pour poursuivre la demande de passkey scannée.</string>
     <string name="hybrid_title">Demande de passkey</string>
-    <string name="hybrid_connecting">Connexion au tunnel chiffré…</string>
-    <string name="hybrid_waiting_computer">En attente de l\'autre appareil à proximité…</string>
-    <string name="hybrid_securing">Sécurisation de la connexion…</string>
+    <string name="hybrid_connecting">Connexion au tunnel chiffré...</string>
+    <string name="hybrid_waiting_computer">En attente de l\'autre appareil à proximité...</string>
+    <string name="hybrid_securing">Sécurisation de la connexion...</string>
     <string name="hybrid_create_question">Créer une passkey pour %s ?</string>
     <string name="hybrid_sign_question">Se connecter à %s ?</string>
     <string name="hybrid_account">Compte : %s</string>

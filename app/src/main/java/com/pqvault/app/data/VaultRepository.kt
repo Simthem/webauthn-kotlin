@@ -94,14 +94,14 @@ class VaultRepository private constructor(private val context: Context) {
         // A new vault shares nothing with whatever was here before, so the whole synced
         // history goes with it. Carrying over a watermark from the old vault would have
         // the first sync read the server's copy of the *new* one as a rollback.
-        settings.save(
-            settings.load().copy(
+        settings.update {
+            it.copy(
                 pinnedSigningKey = Base64Url.encode(vault.signingPublicKeyEncoded),
                 localVersion = vault.vaultVersion,
                 lastSeenVersion = 0,
                 lastSyncEtag = "",
-            ),
-        )
+            )
+        }
         unlocked = vault
         onUnlocked()
     }
@@ -151,22 +151,22 @@ class VaultRepository private constructor(private val context: Context) {
         }
 
         // The pairing code carried a digest rather than the key itself. Checking it here
-        // is the whole point of having carried it: it is what makes this a vault the
-        // other device vouched for, rather than whatever the server chose to hand back.
+        // is why it was carried: it makes this a vault the other device vouched for,
+        // rather than whatever the server chose to hand back.
         if (!signerMatchesPinnedDigest(current, success.signingPublicKey)) {
             success.vault.close()
             return RestoreOutcome.Untrusted(context.getString(R.string.untrusted_signer))
         }
 
         vaultFile.writeBytes(remote.bytes)
-        settings.save(
-            settings.load().copy(
+        settings.update {
+            it.copy(
                 pinnedSigningKey = Base64Url.encode(success.signingPublicKey),
                 lastSyncEtag = remote.etag.orEmpty(),
                 lastSeenVersion = success.vault.vaultVersion,
                 localVersion = success.vault.vaultVersion,
-            ),
-        )
+            )
+        }
         unlocked = success.vault
         onUnlocked()
         RestoreOutcome.Success
@@ -210,7 +210,7 @@ class VaultRepository private constructor(private val context: Context) {
                 if (current.pinnedSigningKey.isEmpty()) {
                     // Trust on first use: pin the signer now so every later open can
                     // detect a substituted vault.
-                    settings.save(current.copy(pinnedSigningKey = Base64Url.encode(result.signingPublicKey)))
+                    settings.update { it.copy(pinnedSigningKey = Base64Url.encode(result.signingPublicKey)) }
                 }
                 onUnlocked()
                 UnlockOutcome.Success
@@ -344,7 +344,7 @@ class VaultRepository private constructor(private val context: Context) {
      * server's genuine copy read as a rollback on the next sync and jam it for good.
      */
     private fun rememberVersion(vault: UnlockedVault) {
-        settings.save(settings.load().copy(localVersion = vault.vaultVersion))
+        settings.update { it.copy(localVersion = vault.vaultVersion) }
     }
 
 
@@ -541,13 +541,13 @@ class VaultRepository private constructor(private val context: Context) {
         // version again and leave the local file ahead of the server, which the next
         // sync would correctly report as a rollback.
         vaultFile.writeBytes(written.bytes)
-        settings.save(
-            settings.load().copy(
+        settings.update {
+            it.copy(
                 lastSyncEtag = written.etag.orEmpty(),
                 lastSeenVersion = written.version,
                 localVersion = written.version,
-            ),
-        )
+            )
+        }
     }
 
     /**
@@ -556,13 +556,13 @@ class VaultRepository private constructor(private val context: Context) {
      * The anti-replay check has no way to tell a malicious replay from a server that was
      * legitimately restored from backup, so when it fires the user is the only one who
      * can say which happened. Without this the app has told them something is wrong and
-     * offered no way forward, which is not a security control so much as a dead end.
-     * Clearing the watermark is deliberately explicit, deliberately theirs, and never
-     * automatic; the pinned signing key still refuses a vault that is not theirs, and the
-     * next sync merges rather than overwrites.
+     * offered no way forward, which is a dead end rather than a security control.
+     * Clearing the watermark is explicit, theirs, and never automatic; the pinned
+     * signing key still refuses a vault that is not theirs, and the next sync merges
+     * instead of overwriting.
      */
     suspend fun acceptRemoteVersion(): Unit = mutex.withLock {
-        settings.save(settings.load().copy(lastSeenVersion = 0, lastSyncEtag = ""))
+        settings.update { it.copy(lastSeenVersion = 0, lastSyncEtag = "") }
     }
 
     fun masterKeyForBiometricWrap(): ByteArray? = unlocked?.exportMasterKeyForLocalWrapping()

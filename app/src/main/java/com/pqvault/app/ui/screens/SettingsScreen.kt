@@ -367,7 +367,7 @@ private fun BrowserRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                browser.fingerprint.take(29) + "…",
+                browser.fingerprint.take(29) + "...",
                 style = MaterialTheme.typography.bodySmall,
                 color = PqColors.Dark3,
                 maxLines = 1,

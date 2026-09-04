@@ -85,13 +85,15 @@ internal class DeviceCredentialAuthenticationHandler(
                     ContextCompat.getMainExecutor(activity.applicationContext),
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            continuation.resumeWith(
-                                Result.success(
-                                    Fido2UserAuthResult(
-                                        signature = result.cryptoObject?.signature
+                            if (continuation.isActive) {
+                                continuation.resumeWith(
+                                    Result.success(
+                                        Fido2UserAuthResult(
+                                            signature = result.cryptoObject?.signature
+                                        )
                                     )
                                 )
-                            )
+                            }
                         }
 
                         override fun onAuthenticationFailed() {
@@ -99,12 +101,14 @@ internal class DeviceCredentialAuthenticationHandler(
                         }
 
                         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                            continuation.resumeWithException(
-                                AuthenticationHandler.AuthenticationErrorException(
-                                    errorCode,
-                                    "Biometric authentication error: $errString"
+                            if (continuation.isActive) {
+                                continuation.resumeWithException(
+                                    AuthenticationHandler.AuthenticationErrorException(
+                                        errorCode,
+                                        "Biometric authentication error: $errString"
+                                    )
                                 )
-                            )
+                            }
                         }
                     },
                 )

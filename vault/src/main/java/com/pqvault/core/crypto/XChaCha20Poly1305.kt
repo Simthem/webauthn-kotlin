@@ -66,9 +66,9 @@ object XChaCha20Poly1305 {
 
     /**
      * HChaCha20 key-derivation function. Runs the ChaCha20 core over key+nonce and
-     * returns words 0..3 and 12..15, crucially *without* the feed-forward addition
-     * that ChaCha20 proper performs, which is what makes the output a PRF suitable
-     * for use as a subkey.
+     * returns words 0..3 and 12..15 *without* the feed-forward addition that ChaCha20
+     * proper performs. Omitting it is what makes the output a PRF suitable for use as
+     * a subkey.
      */
     internal fun hChaCha20(key: ByteArray, nonce16: ByteArray): ByteArray {
         require(key.size == 32) { "key must be 32 bytes" }

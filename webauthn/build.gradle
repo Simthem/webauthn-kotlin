@@ -27,7 +27,7 @@ plugins {
 }
 
 android {
-    namespace "com.linecorp.webauthn"
+    namespace = "com.linecorp.webauthn"
     compileSdkVersion 35
 
     defaultConfig {
@@ -66,6 +66,15 @@ android {
     }
     buildFeatures {
         buildConfig = true
+    }
+
+    // Same reports the app module produces, so the CI job can publish or archive findings
+    // from this module instead of only the ones app's checkDependencies happens to reach.
+    lint {
+        sarifReport = true
+        htmlReport = true
+        xmlReport = true
+        abortOnError = true
     }
 
     packagingOptions {

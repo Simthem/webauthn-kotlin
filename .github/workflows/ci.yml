@@ -48,7 +48,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Unit tests
-        run: ./gradlew --no-daemon :vault:test :app:testDebugUnitTest
+        run: >-
+          ./gradlew --no-daemon
+          :vault:test
+          :app:testDebugUnitTest
+          :webauthn:testDebugUnitTest
 
       - name: Assemble debug
         run: ./gradlew --no-daemon :app:assembleDebug
@@ -62,8 +66,10 @@ jobs:
           path: |
             vault/build/reports/tests/
             app/build/reports/tests/
+            webauthn/build/reports/tests/
             vault/build/test-results/
             app/build/test-results/
+            webauthn/build/test-results/
           retention-days: 14
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -89,7 +95,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Lint
-        run: ./gradlew --no-daemon :app:lintDebug
+        run: ./gradlew --no-daemon :app:lintDebug :webauthn:lintDebug :rptest:lintDebug
 
       # Only Lint errors reach the Security tab. Warnings are worth reading and worth
       # fixing, but publishing them as security alerts puts "a newer version of
@@ -102,17 +108,24 @@ jobs:
       - name: Keep only Lint errors for the Security tab
         if: always()
         run: |
-          jq '
-            .runs |= map(
-              . as $run
-              | .results |= map(
-                  select(
-                    (($run.tool.driver.rules[.ruleIndex].defaultConfiguration.level) // "warning")
-                    == "error"
+          jq -s '
+            {
+              "$schema": .[0]["$schema"],
+              version: .[0].version,
+              runs: [
+                .[].runs[]
+                | . as $run
+                | .results |= map(
+                    select(
+                      (($run.tool.driver.rules[.ruleIndex].defaultConfiguration.level) // "warning")
+                      == "error"
+                    )
                   )
-                )
-            )
-          ' app/build/reports/lint-results-debug.sarif > lint-errors.sarif
+              ]
+            }
+          ' app/build/reports/lint-results-debug.sarif \
+            webauthn/build/reports/lint-results-debug.sarif \
+            rptest/build/reports/lint-results-debug.sarif > lint-errors.sarif
           echo "errors published: $(jq '[.runs[].results[]] | length' lint-errors.sarif)"
 
       - name: Upload Lint SARIF
@@ -134,6 +147,8 @@ jobs:
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.xml
             app/build/reports/lint-results-debug.sarif
+            webauthn/build/reports/lint-results-debug.*
+            rptest/build/reports/lint-results-debug.*
           retention-days: 14
 
   codeql:
@@ -175,7 +190,12 @@ jobs:
       # analyses a fraction of the sources, which passes while seeing almost nothing.
       - name: Build for analysis
         if: matrix.language == 'java-kotlin'
-        run: ./gradlew --no-daemon :vault:compileKotlin :app:compileDebugKotlin
+        run: >-
+          ./gradlew --no-daemon
+          :vault:compileKotlin
+          :app:compileDebugKotlin
+          :webauthn:compileDebugKotlin
+          :rptest:compileDebugKotlin
 
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
@@ -213,7 +233,7 @@ jobs:
 
       # Gradle has no lockfile in this project, so one is generated on the fly. Writing
       # verification metadata enumerates every module that actually resolves, versions
-      # included, which is exactly what a vulnerability scanner needs and what parsing
+      # included, which is what a vulnerability scanner needs and what parsing
       # build.gradle by hand would get wrong for transitive dependencies.
       - name: Generate a dependency lockfile for scanning
         run: |
@@ -329,7 +349,10 @@ jobs:
       - name: Snyk Open Source
         if: steps.token.outputs.present == 'true'
         run: |
-          snyk test --all-sub-projects --severity-threshold=medium \
+          # The setup action's `snyk` shell wrapper expands arguments through `eval`.
+          # Call the verified binary it installs directly so the regex remains one
+          # literal argument instead of becoming shell syntax.
+          snyk-linux test --all-sub-projects --severity-threshold=medium \
             --configuration-matching='^(releaseRuntimeClasspath|runtimeClasspath)$' \
             --sarif-file-output=snyk-oss.sarif \
             --org=themthem58
@@ -338,7 +361,7 @@ jobs:
         # Still run the source scan if the dependency scan found something. Both SARIF
         # reports then reach the Security tab before the job correctly remains red.
         if: always() && steps.token.outputs.present == 'true'
-        run: snyk code test --sarif-file-output=snyk-code.sarif --org=themthem58
+        run: snyk-linux code test --sarif-file-output=snyk-code.sarif --org=themthem58
 
       - name: Upload Snyk Open Source SARIF
         if: always() && steps.token.outputs.present == 'true' && hashFiles('snyk-oss.sarif') != ''

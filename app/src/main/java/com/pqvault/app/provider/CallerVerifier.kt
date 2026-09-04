@@ -13,8 +13,8 @@ import java.security.MessageDigest
  *
  * This matters more than it looks. The origin is what binds an assertion to the site it
  * was meant for. Get it wrong and a malicious app can ask us to sign an assertion that a
- * relying party will happily accept as coming from its own web origin, which is exactly
- * the attack passkeys are supposed to make impossible.
+ * relying party will happily accept as coming from its own web origin, the attack
+ * passkeys are supposed to make impossible.
  *
  * Two kinds of caller:
  *

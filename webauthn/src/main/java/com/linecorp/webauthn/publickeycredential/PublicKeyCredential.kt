@@ -43,6 +43,7 @@ import com.linecorp.webauthn.rp.RegistrationData
 import com.linecorp.webauthn.rp.RegistrationOptions
 import com.linecorp.webauthn.rp.RelyingParty
 import com.linecorp.webauthn.util.Fido2Util
+import com.linecorp.webauthn.util.SecureExecutionHelper
 import com.linecorp.webauthn.util.toBase64url
 import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineDispatcher
@@ -59,7 +60,7 @@ import kotlinx.serialization.json.Json
  */
 class PublicKeyCredential(
     private val rpClient: RelyingParty,
-    db: CredentialSourceStorage,
+    private val db: CredentialSourceStorage,
     private val authenticationMethod: AuthenticationMethod,
     private val attestationStatement: AttestationStatementFormat,
     private val relyingPartyDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -206,29 +207,13 @@ class PublicKeyCredential(
      * @throws WebAuthnException.CredSrcStorageException If there is an error loading credentials from the database.
      */
     suspend fun getAllAccounts(): List<com.linecorp.webauthn.model.PublicKeyCredentialSource> {
-        val result = mutableListOf<com.linecorp.webauthn.model.PublicKeyCredentialSource>()
-        for (authMethod in AuthenticationMethod.entries) {
-            for (fmt in AttestationStatementFormat.entries) {
-                val authenticator = authenticatorProvider.getAuthenticator(
-                    authenticationMethod = authMethod,
-                    attestationStatement = fmt,
-                    fido2PromptInfo = null,
-                )
-                val credentials: List<com.linecorp.webauthn.model.PublicKeyCredentialSource> = try {
-                    withContext(databaseDispatcher) {
-                        authenticator.db.loadAll()
-                    }
-                } catch (e: Exception) {
-                    throw WebAuthnException.CredSrcStorageException(
-                        "Failed to load credentials for authenticator type: ${authenticator.authType}",
-                        e
-                    )
-                }
-                result.addAll(credentials)
+        return try {
+            withContext(databaseDispatcher) {
+                db.loadAll()
             }
+        } catch (e: Exception) {
+            throw WebAuthnException.CredSrcStorageException("Failed to load credentials", e)
         }
-
-        return result
     }
 
     /**
@@ -236,24 +221,19 @@ class PublicKeyCredential(
      *
      * @throws WebAuthnException.CredSrcStorageException If there is an error loading or deleting credentials from the database.
      */
-    suspend fun deleteAllAccounts() {
-        for (authMethod in AuthenticationMethod.entries) {
-            for (fmt in AttestationStatementFormat.entries) {
-                val authenticator = authenticatorProvider.getAuthenticator(
-                    authenticationMethod = authMethod,
-                    attestationStatement = fmt,
-                    fido2PromptInfo = null,
-                )
-
-                try {
-                    withContext(databaseDispatcher) {
-                        authenticator.db.loadAll().forEach { credential ->
-                            authenticator.db.delete(credential.id)
-                        }
-                    }
-                } catch (e: Exception) {
-                    throw WebAuthnException.CredSrcStorageException("Failed to load and delete all credentials", e)
+    suspend fun deleteAllAccounts(): Unit = mutex.withLock {
+        val credentials = getAllAccounts()
+        for (credential in credentials) {
+            SecureExecutionHelper.deleteKey(credential.id)
+            try {
+                withContext(databaseDispatcher) {
+                    db.delete(credential.id)
                 }
+            } catch (e: Exception) {
+                throw WebAuthnException.CredSrcStorageException(
+                    "Failed to delete credential for credId: ${credential.id}",
+                    e
+                )
             }
         }
     }

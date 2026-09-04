@@ -19,6 +19,7 @@ package com.linecorp.webauthn.model
 import co.nstant.`in`.cbor.builder.AbstractBuilder
 import co.nstant.`in`.cbor.builder.MapBuilder
 import com.linecorp.webauthn.exceptions.WebAuthnException
+import java.math.BigInteger
 import java.nio.ByteBuffer
 import java.security.interfaces.ECPublicKey
 
@@ -101,8 +102,8 @@ class EC2COSEKey(var kty: Int, var alg: Int, var crv: Int, var x: ByteArray, var
         kty = 2,
         alg = -7,
         crv = 1,
-        x = ecPublicKey.w.affineX.toByteArray(),
-        y = ecPublicKey.w.affineY.toByteArray(),
+        x = ecPublicKey.w.affineX.toUnsignedCoordinate(P256_COORDINATE_SIZE),
+        y = ecPublicKey.w.affineY.toUnsignedCoordinate(P256_COORDINATE_SIZE),
     )
 
     override fun <T : AbstractBuilder<*>?> toCBOR(builder: MapBuilder<T>): T = builder
@@ -112,6 +113,25 @@ class EC2COSEKey(var kty: Int, var alg: Int, var crv: Int, var x: ByteArray, var
         .put(-2, x)
         .put(-3, y)
         .end()
+
+    private companion object {
+        const val P256_COORDINATE_SIZE = 32
+
+        fun BigInteger.toUnsignedCoordinate(size: Int): ByteArray {
+            require(signum() >= 0) { "EC coordinates must be non-negative" }
+            val encoded = toByteArray()
+            val firstDataByte = if (encoded.size > 1 && encoded[0] == 0.toByte()) 1 else 0
+            val dataSize = encoded.size - firstDataByte
+            require(dataSize <= size) { "EC coordinate does not fit in $size bytes" }
+            return ByteArray(size).also { output ->
+                encoded.copyInto(
+                    destination = output,
+                    destinationOffset = size - dataSize,
+                    startIndex = firstDataByte,
+                )
+            }
+        }
+    }
 }
 
 enum class AuthenticatorDataFlags(val value: UByte) {

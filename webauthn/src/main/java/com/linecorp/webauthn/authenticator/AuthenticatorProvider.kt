@@ -55,7 +55,6 @@ class AuthenticatorProvider(
         val fido2ObjectGenerator = when (attestationStatement) {
             AttestationStatementFormat.NONE -> NoneObjectGenerator()
             AttestationStatementFormat.ANDROID_KEY -> AndroidKeyObjectGenerator()
-            else -> AndroidKeyObjectGenerator()
         }
         val authType: AuthenticatorType = AuthenticatorType.getAuthenticatorType(
             authenticationMethod,

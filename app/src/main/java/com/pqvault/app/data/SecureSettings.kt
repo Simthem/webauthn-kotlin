@@ -3,7 +3,9 @@ package com.pqvault.app.data
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.AtomicFile
 import java.io.File
+import java.io.IOException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -76,10 +78,25 @@ class SecureSettings(private val context: Context) {
         val privilegedBrowserAllowlist: String = "",
     )
 
-    fun load(): Settings {
+    fun load(): Settings = synchronized(IO_LOCK) { loadLocked() }
+
+    /**
+     * Atomically updates the latest settings value.
+     *
+     * Callers used to perform `load().copy(...); save(...)` through several independent
+     * [SecureSettings] instances. A sync and the settings screen could consequently race,
+     * with the last writer silently restoring an old signing-key pin or rollback watermark.
+     * Keeping the read/modify/write under one process-wide lock prevents that regression.
+     */
+    fun update(transform: (Settings) -> Settings): Settings = synchronized(IO_LOCK) {
+        transform(loadLocked()).also(::saveLocked)
+    }
+
+    private fun loadLocked(): Settings {
         if (!file.exists()) return Settings()
         return try {
-            val stored = file.readBytes()
+            val stored = AtomicFile(file).readFully()
+            if (stored.size > MAX_SETTINGS_BYTES) throw IOException("settings file is too large")
             val ivLength = stored[0].toInt() and 0xFF
             val iv = stored.copyOfRange(1, 1 + ivLength)
             val ciphertext = stored.copyOfRange(1 + ivLength, stored.size)
@@ -94,11 +111,26 @@ class SecureSettings(private val context: Context) {
         }
     }
 
-    fun save(settings: Settings) {
+    fun save(settings: Settings) = synchronized(IO_LOCK) { saveLocked(settings) }
+
+    private fun saveLocked(settings: Settings) {
         val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
         val plaintext = serialize(settings).toByteArray(Charsets.UTF_8)
         val ciphertext = cipher.doFinal(plaintext)
-        file.writeBytes(byteArrayOf(cipher.iv.size.toByte()) + cipher.iv + ciphertext)
+        val bytes = byteArrayOf(cipher.iv.size.toByte()) + cipher.iv + ciphertext
+        require(bytes.size <= MAX_SETTINGS_BYTES) { "settings are too large" }
+
+        val atomic = AtomicFile(file)
+        val output = atomic.startWrite()
+        try {
+            output.write(bytes)
+            atomic.finishWrite(output)
+        } catch (failure: Throwable) {
+            atomic.failWrite(output)
+            throw failure
+        } finally {
+            plaintext.fill(0)
+        }
     }
 
     private fun serialize(s: Settings): String = listOf(
@@ -162,5 +194,9 @@ class SecureSettings(private val context: Context) {
         private const val KEY_ALIAS = "pqvault_settings"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_BITS = 128
+        private const val MAX_SETTINGS_BYTES = 1024 * 1024
+
+        /** Shared by every SecureSettings instance in this process. */
+        private val IO_LOCK = Any()
     }
 }
