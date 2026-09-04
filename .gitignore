@@ -25,5 +25,6 @@ local.properties
 *.keystore
 keystore.properties
 
-# OS
+# OS and editor backups
 .DS_Store
+*~

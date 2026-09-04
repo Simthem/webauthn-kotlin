@@ -127,6 +127,7 @@
     <string name="hybrid_uv_unavailable">Ce site exige une vérification de l\'utilisateur, mais aucun verrouillage d\'écran sécurisé n\'est disponible.</string>
     <string name="hybrid_verify_title">Confirmer la demande de passkey</string>
     <string name="hybrid_verify_subtitle">Vérifiez votre identité pour continuer avec %s</string>
+    <string name="hybrid_verify_key_failed">Cet appareil n\'a pas pu confirmer la vérification d\'identité. Aucune signature n\'a été émise.</string>
 
     <!-- Messages -->
     <string name="vault_created">Coffre créé.</string>

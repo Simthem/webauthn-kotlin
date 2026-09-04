@@ -3,8 +3,8 @@ package com.pqvault.app.provider
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
+import androidx.core.net.toUri
 import java.security.MessageDigest
 
 /**
@@ -35,7 +35,7 @@ object InstalledBrowsers {
      */
     fun detect(context: Context): List<Browser> {
         val packageManager = context.packageManager
-        val probe = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        val probe = Intent(Intent.ACTION_VIEW, "https://example.com".toUri())
 
         val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.queryIntentActivities(

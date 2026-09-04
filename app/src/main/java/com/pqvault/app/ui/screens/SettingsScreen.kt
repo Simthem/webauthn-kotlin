@@ -356,7 +356,7 @@ private fun BrowserRow(
                 )
                 if (browser.isDefault) {
                     Spacer(Modifier.width(8.dp))
-                    Badge(stringResource(R.string.browser_default), PqColors.Amber300)
+                    Badge(stringResource(R.string.browser_default), color = PqColors.Amber300)
                 }
             }
             Text(

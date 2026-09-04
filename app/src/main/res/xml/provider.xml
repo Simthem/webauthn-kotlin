@@ -9,8 +9,15 @@
 
     Only passkeys are declared: passwords are KeePassDX's job, not ours.
 -->
+<!--
+    settingsSubtitle is read from Android 14 onwards and ignored below it, which is the
+    behaviour we want: the app still registers as a provider on Android 13, it simply
+    shows no subtitle there. Declaring it is how Android 14 users get the label.
+-->
 <credential-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsSubtitle="@string/provider_settings_subtitle">
+    xmlns:tools="http://schemas.android.com/tools"
+    android:settingsSubtitle="@string/provider_settings_subtitle"
+    tools:ignore="UnusedAttribute">
     <capabilities>
         <capability name="androidx.credentials.TYPE_PUBLIC_KEY_CREDENTIAL" />
     </capabilities>

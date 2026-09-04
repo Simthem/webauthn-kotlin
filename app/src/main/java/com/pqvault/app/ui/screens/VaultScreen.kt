@@ -175,12 +175,12 @@ private fun PasskeyRow(entry: PasskeyEntry, onDelete: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Badge(entry.rpId, PqColors.Dark2)
-            Badge(entry.algorithm?.label ?: "alg ${entry.algorithmId}", PqColors.Amber300)
+            Badge(entry.rpId, color = PqColors.Dark2)
+            Badge(entry.algorithm?.label ?: "alg ${entry.algorithmId}", color = PqColors.Amber300)
             if (entry.signCount > 0) {
                 Badge(
                     pluralStringResource(R.plurals.usage_count, entry.signCount.toInt(), entry.signCount),
-                    PqColors.Dark2,
+                    color = PqColors.Dark2,
                 )
             }
         }

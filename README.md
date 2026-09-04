@@ -7,7 +7,7 @@ It is the KeePassDX model applied to passkeys: an encrypted file you own, synced
 you want, that no third party can read.
 
 <p align="center">
-  <img src="docs/screenshots/overview.png" alt="PQ Vault screens" width="820">
+  <img src="docs/screenshots/overview_2.png" alt="PQ Vault screens" width="820">
 </p>
 
 ## Contents

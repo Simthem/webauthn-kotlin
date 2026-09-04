@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: gradle/actions/wrapper-validation@v4
+      - uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
   build:
     name: Build and unit tests
@@ -43,9 +43,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
       - name: Unit tests
         run: ./gradlew --no-daemon :vault:test :app:testDebugUnitTest
@@ -85,21 +85,56 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
       - name: Lint
         run: ./gradlew --no-daemon :app:lintDebug
 
-      # Lint's SARIF goes to the same Security tab as CodeQL, so a hardcoded secret or a
-      # missing permission check shows up next to everything else rather than in a log.
+      # Only Lint errors reach the Security tab. Warnings are worth reading and worth
+      # fixing, but publishing them as security alerts puts "a newer version of
+      # camera-view is available" in the same list, with the same weight, as a hardcoded
+      # secret. That does not make anyone safer, it makes the list unreadable. The full
+      # report stays available as an artifact below.
+      #
+      # Lint's SARIF puts the severity on the rule rather than on each result, so the
+      # filter has to resolve ruleIndex back to the rule before deciding.
+      - name: Keep only Lint errors for the Security tab
+        if: always()
+        run: |
+          jq '
+            .runs |= map(
+              . as $run
+              | .results |= map(
+                  select(
+                    (($run.tool.driver.rules[.ruleIndex].defaultConfiguration.level) // "warning")
+                    == "error"
+                  )
+                )
+            )
+          ' app/build/reports/lint-results-debug.sarif > lint-errors.sarif
+          echo "errors published: $(jq '[.runs[].results[]] | length' lint-errors.sarif)"
+
       - name: Upload Lint SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: app/build/reports/lint-results-debug.sarif
+          sarif_file: lint-errors.sarif
           category: android-lint
         continue-on-error: true
+
+      # Everything the filter above dropped lives here, so a warning is one click away
+      # rather than gone.
+      - name: Upload the full Lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            app/build/reports/lint-results-debug.sarif
+          retention-days: 14
 
   codeql:
     name: CodeQL
@@ -121,7 +156,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         if: matrix.language == 'java-kotlin'
 
       - name: Initialise CodeQL
@@ -156,8 +191,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
       # Resolves the actual dependency graph rather than parsing build files, so
       # transitive versions are the ones really on the classpath. BouncyCastle and OkHttp
@@ -184,7 +219,7 @@ jobs:
 
       - name: OSV-Scanner
         if: hashFiles('gradle/verification-metadata.xml') != ''
-        uses: google/osv-scanner-action/osv-scanner-action@v2
+        uses: google/osv-scanner-action/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
         with:
           scan-args: |-
             --lockfile=gradle/verification-metadata.xml
@@ -215,7 +250,7 @@ jobs:
           fetch-depth: 0
 
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
@@ -230,7 +265,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Scan the repository
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scanners: vuln,secret,misconfig
@@ -274,12 +309,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         if: steps.token.outputs.present == 'true'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         if: steps.token.outputs.present == 'true'
 
-      - uses: snyk/actions/setup@master
+      - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         if: steps.token.outputs.present == 'true'
 
       - name: Snyk Open Source

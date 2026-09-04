@@ -74,6 +74,10 @@ encrypted file instead. The two models are incompatible: credentials created wit
 - `.gitignore` extended to cover per-module `build/` directories, `.kotlin/`, APK and AAB
   outputs, and signing material. Only the root `build/` was ignored before, which left
   several thousand build artifacts visible to `git add`.
+- Android Lint publishes only its errors to the code-scanning view. Warnings stay in the
+  full report, uploaded as an artifact. Listing "a newer version of camera-view is
+  available" beside a hardcoded secret, at the same weight, makes the list unreadable
+  rather than anyone safer.
 
 ### Removed
 
@@ -91,6 +95,18 @@ encrypted file instead. The two models are incompatible: credentials created wit
 
 ### Security
 
+- User verification before a hybrid signature is now bound to the Android Keystore.
+  `HybridUserVerification` used to release a WebAuthn assertion on the strength of
+  `BiometricPrompt`'s success callback, which a rooted device can invoke without anyone
+  touching the sensor. It now carries a `CryptoObject` over a key created with
+  `setUserAuthenticationRequired` and a zero-second validity window, and answers
+  `Verified` only after that key has actually encrypted something. This is the guarantee
+  `BiometricVaultLock` already relied on, applied to the second place that needed it.
+- Every third-party GitHub Action is pinned to a full commit SHA rather than a moving
+  tag, `snyk/actions/setup` included, which was tracking a branch. A tag can be repointed
+  by whoever owns the action, and it runs on the runner with the workflow's token.
+- Backup is disabled in the `rptest` harness, which was inheriting the platform default
+  of allowing it.
 - Release builds are signed only when a keystore is configured through `pqvaultStoreFile`
   or `PQVAULT_STORE_FILE`. Without it the APK is left unsigned and the build says so: for
   a credential provider the signing certificate is the app's identity.

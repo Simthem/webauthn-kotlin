@@ -13,11 +13,15 @@ stages:
 # GitLab ships analyzers for exactly the things worth checking here: Semgrep rules for
 # Kotlin and Java, secret detection over the whole history, and Gemnasium against the
 # resolved Gradle graph.
+#
+# There is deliberately no Jobs/License-Scanning.gitlab-ci.yml here. That template was
+# removed in GitLab 16.0, and including it fails the whole pipeline at parse time rather
+# than skipping the job. Licence data now comes out of dependency scanning below, which
+# emits a CycloneDX SBOM carrying the licence of every resolved component.
 include:
   - template: Jobs/SAST.gitlab-ci.yml
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   - template: Jobs/Dependency-Scanning.gitlab-ci.yml
-  - template: Jobs/License-Scanning.gitlab-ci.yml
 
 variables:
   # Keeping Gradle's home inside the project is what makes it cacheable: GitLab can only

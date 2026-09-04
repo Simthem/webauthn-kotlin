@@ -1,0 +1,33 @@
+# Gitleaks configuration for PQ Vault.
+#
+# The whole default rule set is kept. The only addition is an exemption for the
+# names of cryptographic algorithms written out in prose.
+#
+# Why it is needed: the default generic-api-key rule fires on a keyword such as
+# "auth", followed by a separator, followed by a high-entropy token. A sentence
+# like "header authenticated as AAD, XChaCha20-Poly1305 content" matches that
+# shape exactly, with the comma acting as the separator and the algorithm name
+# as the supposed secret. Its entropy, 3.73, clears the rule's 3.5 threshold.
+#
+# The exemption is keyed on the algorithm names themselves rather than on file
+# paths. Allowing whole documents through would be the easier fix and the wrong
+# one: documentation is a common place for a real credential to be pasted by
+# accident, and it must keep being scanned.
+
+title = "PQ Vault"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Cryptographic algorithm names, which are public identifiers rather than secrets"
+regexTarget = "line"
+regexes = [
+  '''XChaCha20-Poly1305''',
+  '''ChaCha20-Poly1305''',
+  '''ML-KEM-(512|768|1024)''',
+  '''ML-DSA-(44|65|87)''',
+  '''Ed25519''',
+  '''X25519''',
+  '''Argon2id''',
+]

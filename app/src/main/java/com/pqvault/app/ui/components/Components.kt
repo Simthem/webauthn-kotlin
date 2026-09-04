@@ -245,7 +245,7 @@ fun SecurityAlertCard(
 
 /** Small pill used for the post-quantum and sync badges. */
 @Composable
-fun Badge(text: String, color: Color = PqColors.Amber500, modifier: Modifier = Modifier) {
+fun Badge(text: String, modifier: Modifier = Modifier, color: Color = PqColors.Amber500) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,

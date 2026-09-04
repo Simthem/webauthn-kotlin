@@ -4,7 +4,7 @@
 
     Keep the two files in the same order so a missing translation is obvious at a glance.
 -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name" translatable="false">PQ Vault</string>
     <string name="provider_settings_subtitle">Synced passkey vault</string>
 
@@ -127,10 +127,12 @@
     <string name="hybrid_uv_unavailable">This site requires user verification, but no secure screen lock is available.</string>
     <string name="hybrid_verify_title">Confirm the passkey request</string>
     <string name="hybrid_verify_subtitle">Verify your identity to continue with %s</string>
+    <string name="hybrid_verify_key_failed">Identity verification could not be confirmed by this device. No signature was released.</string>
 
     <!-- Messages -->
     <string name="vault_created">Vault created.</string>
-    <string name="passphrase_too_short">The passphrase must be at least %d characters.</string>
+    <!-- Always formatted with MIN_PASSPHRASE, which is 12, so the count is never 1. -->
+    <string name="passphrase_too_short" tools:ignore="PluralsCandidate">The passphrase must be at least %d characters.</string>
     <string name="passphrase_mismatch">The two passphrases do not match.</string>
     <string name="wrong_passphrase">Wrong passphrase.</string>
     <string name="unlock_first">Unlock the vault first.</string>
@@ -185,14 +187,16 @@
     <string name="provider_no_algorithm">No algorithm in common with the site.</string>
 
     <!-- Sync verdicts. The engine reports facts; these are the words. -->
-    <string name="sync_untrusted_rollback">The server returned version %1$d, older than version %2$d which this device has already accepted. Nothing was uploaded.</string>
+    <!-- Both numbers are vault version numbers, not counts of anything. -->
+    <string name="sync_untrusted_rollback" tools:ignore="PluralsCandidate">The server returned version %1$d, older than version %2$d which this device has already accepted. Nothing was uploaded.</string>
     <string name="sync_untrusted_signature">The remote vault\'s signature is invalid.</string>
     <string name="sync_untrusted_signer">The remote vault was signed by an unknown key.</string>
     <string name="sync_untrusted_malformed">The remote vault is unreadable: %s</string>
     <string name="sync_read_failed">Could not read the remote vault: %s</string>
     <string name="sync_create_failed">Could not create the remote vault: %s</string>
     <string name="sync_write_failed">Could not write the remote vault: %s</string>
-    <string name="sync_contended">Gave up after %d attempts: another device kept writing to the vault.</string>
+    <!-- Always formatted with the engine's maxAttempts, which is 4, so never 1. -->
+    <string name="sync_contended" tools:ignore="PluralsCandidate">Gave up after %d attempts: another device kept writing to the vault.</string>
     <string name="sync_no_local_vault">No vault on this device yet.</string>
     <string name="sync_device_key_rejected">This device\'s key no longer opens the local vault. Enrol it again from Settings.</string>
     <string name="sync_device_identity_lost">This device\'s identity is no longer readable. Enrol the device again from Settings to restore background sync.</string>
