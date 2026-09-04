@@ -1,0 +1,61 @@
+plugins {
+    id "org.jetbrains.kotlin.jvm"
+    id "org.jetbrains.kotlin.plugin.serialization" version "$kotlinVersion"
+    // Without this the app's lint run skips this module entirely, and this is where the
+    // crypto and the sync protocol live.
+    id "com.android.lint"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+    }
+}
+
+dependencies {
+    // bcprov-jdk15to18 and NOT bcprov-jdk18on: the latter ships ML-KEM only inside
+    // the META-INF/versions/9 multi-release overlay, which D8/R8 silently drops,
+    // so ML-KEM would be missing at runtime on Android. This variant keeps every
+    // PQC package at the jar root.
+    implementation "org.bouncycastle:bcprov-jdk15to18:$bouncyCastleVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion"
+    implementation "co.nstant.in:cbor:$cborVersion"
+
+    testImplementation platform("org.junit:junit-bom:$junit5Version")
+    testImplementation "org.junit.jupiter:junit-jupiter-api"
+    testImplementation "org.junit.jupiter:junit-jupiter-params"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation "com.google.truth:truth:$truthVersion"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion"
+}
+
+tasks.named("test") {
+    useJUnitPlatform()
+
+    // Gradle prints nothing about tests by default, so a green build and a build that
+    // ran no tests at all look identical from the terminal. Saying what ran is the
+    // difference between "it passed" and "I have no idea whether it passed".
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+        showExceptions true
+        showCauses true
+        showStackTraces true
+    }
+
+    afterSuite { desc, result ->
+        // Only the root suite; every class would print its own line otherwise.
+        if (desc.parent == null) {
+            println "\n${result.testCount} tests: ${result.successfulTestCount} passed, " +
+                "${result.failedTestCount} failed, ${result.skippedTestCount} skipped"
+        }
+    }
+}
+

@@ -1,0 +1,35 @@
+/*
+ * Development harness only. This is a fake relying party used to exercise the credential
+ * provider end to end on a device: it asks Credential Manager for a passkey exactly as a
+ * real app would, which is the only way to prove that PQ Vault is actually offered in the
+ * system picker. It is not part of the product and should not be shipped.
+ */
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+}
+
+android {
+    namespace "com.pqvault.rptest"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.pqvault.rptest"
+        minSdk 34
+        targetSdk 36
+        versionCode 1
+        versionName "1.0"
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    kotlinOptions { jvmTarget = "11" }
+}
+
+dependencies {
+    implementation "androidx.core:core-ktx:$coreVersion"
+    implementation "androidx.appcompat:appcompat:$appcompatVersion"
+    implementation "androidx.credentials:credentials:$credentialsVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion"
+}

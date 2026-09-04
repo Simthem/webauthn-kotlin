@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    French translation. Keep the same order as values/strings.xml so a missing entry is
+    obvious at a glance.
+-->
+<resources>
+    <string name="provider_settings_subtitle">Coffre de passkeys synchronisé</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_tagline">Vos passkeys restent les vôtres. Chiffrées de bout en bout, synchronisées sur votre propre cloud.</string>
+    <string name="feature_webdav_title">Synchronisation WebDAV</string>
+    <string name="feature_webdav_body">Nextcloud ou tout serveur WebDAV. Rien ne transite par un tiers.</string>
+    <string name="feature_pq_title">Chiffrement post-quantique</string>
+    <string name="feature_pq_body">ML-KEM-768 et ML-DSA-65 en hybride pour le partage entre appareils.</string>
+    <string name="feature_biometric_title">Déverrouillage biométrique</string>
+    <string name="feature_biometric_body">Votre empreinte protège la clé sur cet appareil.</string>
+    <string name="create_vault_title">Créer votre coffre</string>
+    <string name="create_vault_warning">Cette phrase secrète est la seule chose qui protège vos passkeys. Elle ne peut pas être réinitialisée.</string>
+    <string name="passphrase">Phrase secrète</string>
+    <string name="passphrase_hint">12 caractères minimum. Une suite de mots aléatoires (diceware) vaut mieux qu\'un mot compliqué.</string>
+    <string name="confirm">Confirmer</string>
+    <string name="create_vault">Créer le coffre</string>
+    <string name="creating">Création…</string>
+
+    <!-- Unlock -->
+    <string name="vault_locked">Coffre verrouillé</string>
+    <string name="unlock">Déverrouiller</string>
+    <string name="fingerprint">Empreinte</string>
+    <string name="unlock_vault_title">Déverrouiller PQ Vault</string>
+    <string name="unlock_vault_subtitle">Votre coffre doit être ouvert pour continuer.</string>
+    <string name="cancel">Annuler</string>
+    <string name="use_passphrase_instead">Utiliser la phrase secrète</string>
+    <string name="biometric_prompt_enable_title">Activer le déverrouillage biométrique</string>
+    <string name="biometric_prompt_enable_subtitle">Votre empreinte protégera la clé du coffre sur cet appareil</string>
+    <string name="biometric_prompt_unlock_title">Déverrouiller le coffre</string>
+    <string name="biometric_prompt_unlock_subtitle">Utilisez votre empreinte pour ouvrir votre coffre de passkeys</string>
+
+    <!-- Vault list -->
+    <string name="my_passkeys">Mes passkeys</string>
+    <plurals name="passkey_count">
+        <item quantity="one">%d enregistrée</item>
+        <item quantity="many">%d enregistrées</item>
+        <item quantity="other">%d enregistrées</item>
+    </plurals>
+    <string name="action_sync">Synchroniser</string>
+    <string name="action_scan_fido">Scanner un QR code de passkey</string>
+    <string name="action_lock">Verrouiller</string>
+    <string name="action_settings">Réglages</string>
+    <string name="action_delete">Supprimer</string>
+    <string name="no_cloud_configured">Aucun cloud configuré : vos passkeys ne sont que sur cet appareil.</string>
+    <string name="empty_title">Aucune passkey</string>
+    <string name="empty_body">Choisissez « PQ Vault » lorsqu\'un site vous propose de créer une passkey.</string>
+    <plurals name="usage_count">
+        <item quantity="one">%d usage</item>
+        <item quantity="many">%d usages</item>
+        <item quantity="other">%d usages</item>
+    </plurals>
+
+    <!-- Settings -->
+    <string name="settings">Réglages</string>
+    <string name="back">Retour</string>
+    <string name="section_webdav">Cloud WebDAV</string>
+    <string name="webdav_url">URL du dossier</string>
+    <string name="webdav_url_hint">Le dossier WebDAV qui contiendra le coffre.</string>
+    <string name="webdav_user">Utilisateur</string>
+    <string name="webdav_app_password">Mot de passe d\'application</string>
+    <string name="webdav_app_password_hint">Nextcloud : Réglages, Sécurité, Créer un mot de passe d\'application. Jamais votre mot de passe principal.</string>
+    <string name="webdav_filename">Nom du fichier</string>
+    <string name="save">Enregistrer</string>
+    <string name="section_device_security">Cet appareil</string>
+    <string name="biometric_unlock">Déverrouillage biométrique</string>
+    <string name="biometric_unavailable">Indisponible sur cet appareil</string>
+    <string name="biometric_explainer">Raccourci local ; la phrase secrète reste indispensable</string>
+    <string name="section_background_sync">Synchronisation en arrière-plan</string>
+    <string name="device_enrolled">Cet appareil est enrôlé : il peut fusionner le coffre sans votre phrase secrète, toutes les 15 minutes.</string>
+    <string name="device_not_enrolled">Cet appareil n\'est pas encore enrôlé comme destinataire du coffre. Sans cela, aucune synchronisation automatique n\'est possible.</string>
+    <string name="enroll_device">Enrôler cet appareil</string>
+    <string name="section_browsers">Navigateurs de confiance</string>
+    <string name="browsers_explainer">Un navigateur qui relaie une requête web déclare lui-même l\'origine. On ne peut le croire que si vous lui faites confiance ici, vérifié par signature. Aucun navigateur coché signifie que toute demande d\'origine web est refusée.</string>
+    <string name="browsers_none_found">Aucun navigateur détecté sur cet appareil.</string>
+    <string name="browser_default">par défaut</string>
+    <string name="section_crypto">Chiffrement</string>
+    <string name="crypto_vault">Coffre</string>
+    <string name="crypto_kdf">Dérivation de clé</string>
+    <string name="crypto_device_sharing">Partage entre appareils</string>
+    <string name="crypto_file_signature">Signature du fichier</string>
+    <string name="crypto_passkey_signature">Signature des passkeys</string>
+    <string name="crypto_note">Les passkeys sont signées en ES256 parce que l\'algorithme est imposé par chaque site, et aucun n\'accepte encore ML-DSA. Le reste est déjà post-quantique.</string>
+
+    <!-- Device pairing -->
+    <string name="section_pairing">Ajouter un appareil</string>
+    <string name="pairing_explainer">Affichez ce code sur l\'appareil qui possède déjà le coffre, puis scannez-le depuis le nouveau. Il transporte les réglages du serveur et l\'empreinte de la clé de signature du coffre. La phrase secrète en est volontairement absente : le nouvel appareil la demande une fois.</string>
+    <string name="show_pairing_code">Afficher le code d\'appairage</string>
+    <string name="scan_pairing_code">Scanner un code d\'appairage</string>
+    <string name="pairing_code_title">Appairer un appareil</string>
+    <string name="pairing_code_body">Scannez ceci depuis le nouvel appareil. Le code expire dans 5 minutes.</string>
+    <string name="pairing_scan_title">Scanner le code d\'appairage</string>
+    <string name="pairing_scan_permission">L\'accès à la caméra est nécessaire pour scanner le code.</string>
+    <string name="grant_camera">Autoriser la caméra</string>
+    <string name="pairing_success">Appareil appairé. Réglages de synchronisation reçus.</string>
+    <string name="pairing_invalid">Ce code n\'est pas un code d\'appairage PQ Vault.</string>
+    <string name="pairing_expired">Ce code a expiré. Générez-en un nouveau.</string>
+    <string name="close">Fermer</string>
+
+    <!-- WebAuthn entre appareils -->
+    <string name="hybrid_scan_title">Utiliser une passkey sur un autre appareil</string>
+    <string name="hybrid_scan_body">Scannez le QR code FIDO affiché par le navigateur sur votre ordinateur ou votre tablette.</string>
+    <string name="hybrid_permissions">L\'accès à la caméra et aux appareils à proximité est nécessaire pour scanner le code et prouver que ce téléphone est proche de l\'autre appareil.</string>
+    <string name="hybrid_grant_permissions">Autoriser la caméra et le Bluetooth</string>
+    <string name="hybrid_permissions_denied">L\'autorisation Bluetooth est nécessaire pour utiliser une passkey sur un autre appareil.</string>
+    <string name="hybrid_invalid_code">Ce code n\'est pas un QR code FIDO valide. Visez le code affiché par le navigateur.</string>
+    <string name="hybrid_unlock_to_continue">Déverrouillez votre coffre pour poursuivre la demande de passkey scannée.</string>
+    <string name="hybrid_title">Demande de passkey</string>
+    <string name="hybrid_connecting">Connexion au tunnel chiffré…</string>
+    <string name="hybrid_waiting_computer">En attente de l\'autre appareil à proximité…</string>
+    <string name="hybrid_securing">Sécurisation de la connexion…</string>
+    <string name="hybrid_create_question">Créer une passkey pour %s ?</string>
+    <string name="hybrid_sign_question">Se connecter à %s ?</string>
+    <string name="hybrid_account">Compte : %s</string>
+    <string name="hybrid_create_action">Créer la passkey</string>
+    <string name="reject">Refuser</string>
+    <string name="hybrid_complete">La demande a été approuvée. Vous pouvez revenir sur l\'autre appareil.</string>
+    <string name="hybrid_failed">La demande de passkey entre appareils a échoué.</string>
+    <string name="hybrid_failed_detail">Échec de la demande entre appareils : %s</string>
+    <string name="hybrid_rejected">Demande refusée.</string>
+    <string name="hybrid_credential_exists">Une passkey existe déjà pour ce compte.</string>
+    <string name="hybrid_uv_unavailable">Ce site exige une vérification de l\'utilisateur, mais aucun verrouillage d\'écran sécurisé n\'est disponible.</string>
+    <string name="hybrid_verify_title">Confirmer la demande de passkey</string>
+    <string name="hybrid_verify_subtitle">Vérifiez votre identité pour continuer avec %s</string>
+
+    <!-- Messages -->
+    <string name="vault_created">Coffre créé.</string>
+    <string name="passphrase_too_short">La phrase secrète doit faire au moins %d caractères.</string>
+    <string name="passphrase_mismatch">Les deux phrases secrètes ne correspondent pas.</string>
+    <string name="wrong_passphrase">Phrase secrète incorrecte.</string>
+    <string name="unlock_first">Déverrouillez d\'abord le coffre.</string>
+    <string name="biometric_enabled">Déverrouillage biométrique activé.</string>
+    <string name="biometric_disabled">Déverrouillage biométrique désactivé.</string>
+    <string name="biometric_not_configured">Le déverrouillage biométrique n\'est pas configuré.</string>
+    <string name="biometric_invalidated">Une nouvelle empreinte a été enregistrée : la clé biométrique a été invalidée. Utilisez votre phrase secrète, puis réactivez-la.</string>
+    <string name="settings_saved">Réglages enregistrés.</string>
+    <string name="device_enrolled_message">Appareil enrôlé : la synchronisation en arrière-plan est possible.</string>
+    <string name="sync_uploaded">Coffre envoyé (v%d).</string>
+    <string name="sync_pushed">Synchronisé (v%d).</string>
+    <string name="sync_merged">Fusionné (v%d).</string>
+    <plurals name="sync_merged_conflicts">
+        <item quantity="one">Fusionné (v%1$d), %2$d conflit résolu.</item>
+        <item quantity="many">Fusionné (v%1$d), %2$d conflits résolus.</item>
+        <item quantity="other">Fusionné (v%1$d), %2$d conflits résolus.</item>
+    </plurals>
+    <string name="sync_remote_unreadable">Le coffre distant ne s\'ouvre pas avec cette clé.</string>
+    <string name="no_webdav_configured">Aucun serveur WebDAV configuré.</string>
+    <string name="vault_locked_error">Le coffre est verrouillé.</string>
+    <string name="unlock_cancelled">Déverrouillage annulé.</string>
+    <string name="untrusted_rollback">Le fichier local est plus ancien (v%1$d) que la dernière version acceptée (v%2$d).</string>
+    <string name="untrusted_signature">La signature du coffre est invalide.</string>
+    <string name="untrusted_signer">Le coffre est signé par une clé inconnue.</string>
+    <string name="untrusted_malformed">Coffre illisible : %s</string>
+
+    <!-- Notifications -->
+    <string name="channel_sync_name">Synchronisation</string>
+    <string name="channel_sync_description">Résultat des synchronisations du coffre</string>
+    <string name="channel_security_name">Alertes de sécurité</string>
+    <string name="channel_security_description">Coffre distant altéré, rejoué ou signé par une clé inconnue</string>
+    <string name="notif_vault_merged">Coffre fusionné</string>
+    <string name="notif_vault_synced">Coffre synchronisé</string>
+    <plurals name="notif_passkeys_on_cloud">
+        <item quantity="one">%d passkey sur votre cloud</item>
+        <item quantity="many">%d passkeys sur votre cloud</item>
+        <item quantity="other">%d passkeys sur votre cloud</item>
+    </plurals>
+    <plurals name="notif_conflicts_resolved">
+        <item quantity="one">%d conflit résolu</item>
+        <item quantity="many">%d conflits résolus</item>
+        <item quantity="other">%d conflits résolus</item>
+    </plurals>
+    <string name="notif_conflicts_body">La version la plus récente a été conservée pour chaque passkey concernée</string>
+    <string name="notif_sync_failed">Échec de synchronisation</string>
+    <string name="notif_remote_untrusted">Coffre distant refusé</string>
+
+    <!-- Credential provider -->
+    <string name="provider_save_unlocked">Enregistrer la passkey dans votre coffre synchronisé</string>
+    <string name="provider_save_locked">Déverrouiller puis enregistrer dans votre coffre</string>
+    <string name="provider_caller_rejected">Appelant refusé : %s</string>
+    <string name="provider_not_authorised">%1$s n\'est pas autorisé par %2$s</string>
+    <string name="provider_no_passkey">Passkey introuvable.</string>
+    <string name="provider_bad_request">Requête incomplète.</string>
+    <string name="provider_no_algorithm">Aucun algorithme commun avec le site.</string>
+
+    <!-- Verdicts de synchronisation -->
+    <string name="sync_untrusted_rollback">Le serveur a renvoyé la version %1$d, plus ancienne que la version %2$d déjà acceptée par cet appareil. Rien n\'a été envoyé.</string>
+    <string name="sync_untrusted_signature">La signature du coffre distant est invalide.</string>
+    <string name="sync_untrusted_signer">Le coffre distant est signé par une clé inconnue.</string>
+    <string name="sync_untrusted_malformed">Le coffre distant est illisible : %s</string>
+    <string name="sync_read_failed">Lecture du coffre distant impossible : %s</string>
+    <string name="sync_create_failed">Création du coffre distant impossible : %s</string>
+    <string name="sync_write_failed">Écriture du coffre distant impossible : %s</string>
+    <string name="sync_contended">Abandon après %d tentatives : un autre appareil a continué d\'écrire dans le coffre.</string>
+    <string name="sync_no_local_vault">Aucun coffre sur cet appareil pour l\'instant.</string>
+    <string name="sync_device_key_rejected">La clé de cet appareil n\'ouvre plus le coffre local. Réinscrivez-le depuis les réglages.</string>
+    <string name="sync_device_identity_lost">L\'identité de cet appareil n\'est plus lisible. Réinscrivez l\'appareil depuis les réglages pour rétablir la synchro en arrière-plan.</string>
+
+    <!-- Reprise après un coffre distant refusé -->
+    <string name="security_alert_title">Coffre distant refusé</string>
+    <string name="security_alert_rollback_help">Si vous venez de restaurer le serveur depuis une sauvegarde, c\'est normal. Accepter prend la version du serveur comme nouvelle référence ; vos passkeys locales sont fusionnées, pas remplacées.</string>
+    <string name="security_alert_accept">Accepter la version du serveur</string>
+    <string name="security_alert_accepted">Version du serveur acceptée. Relancez la synchro pour fusionner.</string>
+    <string name="dismiss">Fermer</string>
+
+    <!-- Suppression d\'une passkey -->
+    <string name="delete_passkey_title">Supprimer cette passkey ?</string>
+    <string name="delete_passkey_body">%1$s (%2$s) sera supprimée de tous les appareils synchronisés. Si c\'est votre seul moyen d\'accès à ce compte, vous le perdrez.</string>
+    <string name="delete_passkey_confirm">Supprimer</string>
+    <string name="passkey_deleted">Passkey supprimée.</string>
+
+    <!-- Validation des réglages -->
+    <string name="webdav_url_malformed">Cette adresse n\'est pas une URL valide.</string>
+    <string name="webdav_url_needs_https">L\'adresse doit commencer par https://. Le mot de passe d\'application circule à chaque synchro et le HTTP simple l\'exposerait.</string>
+    <string name="vault_create_failed">Le coffre n\'a pas pu être créé.</string>
+
+    <!-- Champ mot de passe -->
+    <string name="reveal">Afficher</string>
+    <string name="hide">Masquer</string>
+
+    <!-- Appairage d\'un second appareil et récupération du coffre -->
+    <string name="pairing_code_too_large">Ce code d\'appairage est trop long pour tenir dans un QR code. Raccourcissez l\'adresse WebDAV puis réessayez.</string>
+    <string name="onboarding_scan_pairing">Scanner un code d\'appairage</string>
+    <string name="restore_title">Récupérer le coffre partagé</string>
+    <string name="restore_body">Cet appareil est appairé à un serveur qui contient déjà un coffre. Saisissez sa phrase secrète pour le récupérer ; vos passkeys sont fusionnées et l\'appareil s\'inscrit pour la synchro en arrière-plan.</string>
+    <string name="restore_action">Récupérer le coffre</string>
+    <string name="restore_or_create">Ou créez un nouveau coffre distinct ci-dessous. À ne faire que si le serveur n\'en contient pas encore.</string>
+    <string name="restore_success">Coffre récupéré et appareil inscrit.</string>
+    <string name="restore_not_found">Aucun coffre à cette adresse pour l\'instant. Créez-en un ci-dessous, il sera envoyé.</string>
+    <string name="restore_failed">Récupération du coffre impossible : %s</string>
+    <string name="restore_needs_passphrase">Saisissez la phrase secrète du coffre.</string>
+
+    <!-- Verrouillage par inactivité -->
+    <string name="auto_lock_title">Verrouiller après inactivité</string>
+    <string name="auto_lock_explainer">Un coffre déverrouillé est gardé en mémoire. Fermer l\'application ne suffit pas : Android peut garder le processus vivant des heures, et le fournisseur de passkeys peut ouvrir le coffre sans qu\'aucun écran ne soit affiché.</string>
+    <string name="auto_lock_never">Jamais</string>
+    <string name="auto_lock_minutes">%d min</string>
+</resources>

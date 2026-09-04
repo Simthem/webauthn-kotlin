@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Belt and braces for Android 11, where android:dataExtractionRules is ignored.
+    android:allowBackup is already false, so nothing should be backed up at all; this
+    states it a second time in the form those releases understand, so the intent does not
+    depend on which attribute a given Android version happens to read.
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+</full-backup-content>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Declares which credential types we can serve.
+
+    Beware the asymmetry: the password type is namespaced android.credentials, but the
+    passkey type is androidx.credentials. The system matches this string against the
+    requested credential type, so the wrong prefix means passkey requests are silently
+    never routed to us and the app simply never appears in the picker.
+
+    Only passkeys are declared: passwords are KeePassDX's job, not ours.
+-->
+<credential-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsSubtitle="@string/provider_settings_subtitle">
+    <capabilities>
+        <capability name="androidx.credentials.TYPE_PUBLIC_KEY_CREDENTIAL" />
+    </capabilities>
+</credential-provider>

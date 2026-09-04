@@ -14,24 +14,9 @@
  * under the License.
  */
 
-import org.codehaus.groovy.runtime.GStringImpl
 import org.jetbrains.kotlin.gradle.tasks.KaptGenerateStubs
 
-buildscript {
-    project.ext.isSnapshot = project.snapshotBuild.toBoolean()
-
-    // Use properties for version to avoid configuration cache issues
-    if (project.ext.isSnapshot) {
-        project.ext.versionName = "${project.versionMajor}.${project.versionMinor}.${project.versionPatch}-SNAPSHOT" as GStringImpl
-    } else {
-        project.ext.versionName = "${project.versionMajor}.${project.versionMinor}.${project.versionPatch}" as GStringImpl
-    }
-}
-
-
 plugins {
-    id "maven-publish"
-    id "signing"
     id "com.android.library"
     id "kotlin-android"
     id "org.jetbrains.kotlin.plugin.serialization" version "$kotlinVersion"
@@ -81,10 +66,6 @@ android {
     }
     buildFeatures {
         buildConfig = true
-    }
-
-    publishing {
-        singleVariant("release") {}
     }
 
     packagingOptions {
@@ -151,70 +132,5 @@ dependencies {
 android.libraryVariants.configureEach { variant ->
     variant.outputs.all {
         outputFileName = "webauthn-kotlin-${variant.name}.aar"
-    }
-}
-
-// Generate sources and javadoc JARs
-tasks.register('androidSourcesJar', Jar) {
-    archiveClassifier.set("sources")
-    from android.sourceSets.main.java.srcDirs
-}
-
-tasks.register('androidJavadocJar', Jar) {
-    archiveClassifier.set("javadoc")
-    from "docs/javadoc" // You can generate this or use placeholder
-}
-
-afterEvaluate {
-    publishing {
-        publications {
-            release(MavenPublication) {
-                from components.release
-                artifact androidSourcesJar
-                artifact androidJavadocJar
-
-                groupId = "com.linecorp"
-                artifactId = "webauthn-kotlin"
-                version = project.ext.versionName
-
-                pom {
-                    name.set(artifactId)
-                    description.set("A Kotlin library for implementing WebAuthn authentication in Android applications")
-                    url.set("https://github.com/line/webauthn-kotlin")
-
-                    licenses {
-                        license {
-                            name.set("The Apache License, Version 2.0")
-                            url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
-                        }
-                    }
-
-                    developers {
-                        developer {
-                            name.set("LY Corporation")
-                            email.set("dl_oss_dev@linecorp.com")
-                            url.set("https://engineering.linecorp.com/en/")
-                        }
-                    }
-
-                    scm {
-                        connection.set("scm:git@github.com:line/webauthn-kotlin.git")
-                        developerConnection.set("scm:git:ssh://github.com:line/webauthn-kotlin.git")
-                        url.set("https://github.com/line/webauthn-kotlin")
-                    }
-                }
-            }
-        }
-    }
-
-    signing {
-        def signingKeyId = project.findProperty("signingKeyId")
-        def signingKey = project.findProperty("signingKey")
-        def signingPassword = project.findProperty("signingPassword")
-
-        if (signingKeyId && signingKey && signingPassword) {
-            useInMemoryPgpKeys(signingKeyId, signingKey, signingPassword)
-            sign publishing.publications.release
-        }
     }
 }

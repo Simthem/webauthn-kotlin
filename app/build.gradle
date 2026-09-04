@@ -1,0 +1,186 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    // Kotlin 2.x moved the Compose compiler into its own plugin; composeOptions is gone.
+    id "org.jetbrains.kotlin.plugin.compose" version "$kotlinVersion"
+    id "de.mannodermaus.android-junit5"
+}
+
+android {
+    namespace "com.pqvault.app"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.pqvault.app"
+        // 30 rather than 34 on purpose: the app must still install and sync on older
+        // /e/OS builds. The system-wide credential provider is gated at runtime instead.
+        minSdk 30
+        targetSdk 36
+        versionCode 1
+        versionName "2.0.0"
+    }
+
+    /*
+     * A release build must never inherit the debug key. That key is the same on every
+     * machine that ever ran the Android SDK, and for a credential provider it is not just
+     * a packaging detail: the signing certificate is the app's identity. It is what
+     * apk-key-hash origins are derived from, what sites pin in assetlinks.json, and what
+     * decides whether an update may replace this install. Shipping a release anyone can
+     * sign an update for defeats all three.
+     *
+     * Supply the keystore through ~/.gradle/gradle.properties or the environment. Without
+     * it the release build is simply left unsigned, which fails loudly at install time
+     * rather than quietly shipping the debug identity.
+     */
+    def releaseStore = project.findProperty("pqvaultStoreFile") ?: System.getenv("PQVAULT_STORE_FILE")
+
+    signingConfigs {
+        if (releaseStore) {
+            release {
+                storeFile file(releaseStore)
+                storePassword project.findProperty("pqvaultStorePassword") ?: System.getenv("PQVAULT_STORE_PASSWORD")
+                keyAlias project.findProperty("pqvaultKeyAlias") ?: System.getenv("PQVAULT_KEY_ALIAS")
+                keyPassword project.findProperty("pqvaultKeyPassword") ?: System.getenv("PQVAULT_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Shrink debug builds as well: without it the Compose runtime alone puts the
+            // APK past 35 MB. Obfuscation stays off (see proguard-rules-debug.pro) so
+            // stack traces remain readable.
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile("proguard-android.txt"),
+                "proguard-rules.pro", "proguard-rules-debug.pro"
+        }
+        release {
+            // The debug APK is dominated by the ~10k icons in material-icons-extended and
+            // by the unused half of BouncyCastle. Both are plain code, so R8 removes what
+            // is unreachable; resource shrinking then drops the leftover assets.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            if (releaseStore) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig null
+                logger.warn("PQVAULT: no release keystore configured, the release APK will be unsigned")
+            }
+        }
+    }
+
+    // Only these two ABIs matter: arm64 for any phone made in the last decade, and x86_64
+    // for emulators. Shipping four copies of the native libraries helps nobody.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "x86_64"
+            universalApk false
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+    buildFeatures {
+        compose true
+    }
+    lint {
+        // SARIF is what lets CI publish findings into the code-scanning view alongside
+        // CodeQL and Trivy, instead of burying them in an HTML file nobody opens.
+        sarifReport = true
+        htmlReport = true
+        xmlReport = true
+        // Analyses the vault module too. Most of what is worth catching lives there.
+        checkDependencies = true
+        abortOnError = true
+        // Missing translations are an error here on purpose: this app ships English and
+        // French, and a half-translated security warning is worse than an untranslated
+        // one because it looks finished.
+        fatal += ["MissingTranslation"]
+    }
+
+    testOptions {
+        unitTests {
+            includeAndroidResources = false
+            // Nothing here touches the framework: these are plain JVM tests over the
+            // pairing payload and the QR limits it has to respect.
+            returnDefaultValues = true
+
+            // Same reason as in the vault module: a silent test task tells you nothing.
+            all { test ->
+                test.testLogging {
+                    events "passed", "skipped", "failed"
+                    exceptionFormat "full"
+                    showExceptions true
+                    showCauses true
+                    showStackTraces true
+                }
+                test.afterSuite { desc, result ->
+                    if (desc.parent == null) {
+                        println "\n${result.testCount} tests: ${result.successfulTestCount} passed, " +
+                            "${result.failedTestCount} failed, ${result.skippedTestCount} skipped"
+                    }
+                }
+            }
+        }
+    }
+    packagingOptions {
+        jniLibs {
+            // The native libraries here total 50 KB. Storing them uncompressed to allow
+            // page-aligned mmap buys nothing at that size, and the alignment padding AGP
+            // inserts to achieve it costs about 20 MB of zeroes in the APK.
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1,LICENSE.md,LICENSE-notice.md,NOTICE.md}"
+        }
+    }
+}
+
+dependencies {
+    implementation project(":vault")
+
+    implementation "androidx.core:core-ktx:$coreVersion"
+    implementation "androidx.appcompat:appcompat:$appcompatVersion"
+    implementation "androidx.activity:activity-compose:$activityVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion"
+
+    // Credential Manager provider APIs. Deliberately NOT credentials-play-services-auth:
+    // that artifact routes through Google Play services, which is exactly what is absent
+    // on a de-Googled phone. The provider side lives in the base artifact.
+    implementation "androidx.credentials:credentials:$credentialsVersion"
+
+    implementation "androidx.biometric:biometric:$biometricVersion"
+    implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
+    implementation "androidx.work:work-runtime-ktx:$workVersion"
+
+    // ZXing rather than ML Kit for QR: ML Kit pulls in Google Play services, which is
+    // precisely what is missing on a de-Googled phone. zxing core is pure Java.
+    implementation "com.google.zxing:core:$zxingVersion"
+    implementation "androidx.camera:camera-camera2:$cameraxVersion"
+    implementation "androidx.camera:camera-lifecycle:$cameraxVersion"
+    implementation "androidx.camera:camera-view:$cameraxVersion"
+
+    implementation platform("androidx.compose:compose-bom:$composeBomVersion")
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.ui:ui-tooling-preview"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleVersion"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:$lifecycleVersion"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:$lifecycleVersion"
+
+    testImplementation platform("org.junit:junit-bom:$junit5Version")
+    testImplementation "org.junit.jupiter:junit-jupiter-api"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation "com.google.truth:truth:$truthVersion"
+    // The android.jar stub returns null from every org.json call, which would make a
+    // payload test pass against nothing at all. The real implementation shadows it.
+    testImplementation "org.json:json:$orgJsonVersion"
+}

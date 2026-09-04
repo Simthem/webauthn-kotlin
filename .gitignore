@@ -1,10 +1,29 @@
-*.iml
+# Gradle
 .gradle
+build/
+
+# Kotlin
+.kotlin/
+
+# Local configuration, never shared
+local.properties
 /local.properties
+
+# IDE
+*.iml
 /.idea
-.DS_Store
-/build
 /captures
+
+# Native build
 .externalNativeBuild
 .cxx
-local.properties
+
+# Build outputs and signing material, which must never be committed
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+
+# OS
+.DS_Store

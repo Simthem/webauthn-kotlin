@@ -1,21 +1,50 @@
-# How to contribute to WebAuthn Kotlin
+# Contributing to PQ Vault
 
-First of all, thank you so much for taking your time to contribute!
-WebAuthn Kotlin is not very different from any other open source projects.
-It will be fantastic if you help us by doing any of the following:
+Thank you for taking the time. PQ Vault is a fork of
+[line/webauthn-kotlin](https://github.com/line/webauthn-kotlin) that took the problem back
+to the cryptographic layer, so the areas most in need of scrutiny are the vault format,
+the merge logic and the credential provider.
 
-- File an issue in [the issue tracker](https://github.com/line/webauthn-kotlin/issues)
-  to report bugs and propose new features and improvements.
-- Ask a question using [the issue tracker](https://github.com/line/webauthn-kotlin/issues).
-- Contribute your work by sending [a pull request](https://github.com/line/webauthn-kotlin/pulls).
+## How to help
 
-## Contributor license agreement
+- Report a bug or propose a feature in
+  [the issue tracker](https://github.com/Simthem/webauthn-kotlin/issues).
+- Ask a question there as well.
+- Send your work as a
+  [pull request](https://github.com/Simthem/webauthn-kotlin/pulls).
 
-When you are sending a pull request and it's a non-trivial change beyond fixing
-typos, please sign [the ICLA (individual contributor license agreement)](https://cla-assistant.io/line/webauthn-kotlin).
-Please [contact us](mailto:dl_oss_dev@linecorp.com) if you need the CCLA
-(corporate contributor license agreement).
+## Before opening a pull request
+
+Run the same checks the pipeline runs:
+
+```bash
+./gradlew verify
+```
+
+That covers the unit tests of both modules and Android Lint. A green run locally is a good
+predictor of a green pipeline, and it is faster than waiting for one.
+
+The `vault` module has no Android dependency, which is deliberate: the cryptography, the
+file format and the merge are testable on a development machine with no emulator. New
+logic in those areas is expected to come with tests that run there.
+
+## Security issues
+
+Do not open a public issue for a vulnerability affecting the vault format, the key
+derivation or the credential provider. Report it privately through
+[GitHub security advisories](https://github.com/Simthem/webauthn-kotlin/security/advisories/new)
+so a fix can ship before the details are public.
+
+## Scope
+
+The `webauthn/` module is the original LY Corporation library, kept intact for reference
+and not built into the application. Changes there belong upstream rather than here.
+
+## Licence
+
+The project is Apache 2.0, like the original. By contributing you agree that your work is
+published under that licence. There is no separate contributor licence agreement to sign.
 
 ## Code of conduct
 
-We expect contributors to follow [our code of conduct](./CODE_OF_CONDUCT.md).
+Contributors are expected to follow [our code of conduct](./CODE_OF_CONDUCT.md).

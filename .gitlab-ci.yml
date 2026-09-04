@@ -1,0 +1,201 @@
+# GitLab pipeline for pqvault.
+#
+# The security stage is not decoration: this app holds passkeys and signs assertions for
+# other people's accounts, so a dependency advisory or a leaked app password matters more
+# than a failing unit test. Scanners therefore run on every branch, not only on main.
+
+stages:
+  - verify
+  - build
+  - test
+  - security
+
+# GitLab ships analyzers for exactly the things worth checking here: Semgrep rules for
+# Kotlin and Java, secret detection over the whole history, and Gemnasium against the
+# resolved Gradle graph.
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+  - template: Jobs/License-Scanning.gitlab-ci.yml
+
+variables:
+  # Keeping Gradle's home inside the project is what makes it cacheable: GitLab can only
+  # cache paths under the build directory.
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dorg.gradle.daemon=false"
+  ANDROID_COMPILE_SDK: "36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  ANDROID_SDK_ROOT: "$CI_PROJECT_DIR/.android-sdk"
+  ANDROID_HOME: "$CI_PROJECT_DIR/.android-sdk"
+  # Command line tools 13.0, the revision that ships sdkmanager 26.
+  ANDROID_CMDLINE_TOOLS: "13114758"
+  SECURE_LOG_LEVEL: "info"
+
+default:
+  image: eclipse-temurin:17-jdk
+  cache:
+    key:
+      files:
+        - gradle/wrapper/gradle-wrapper.properties
+        - gradle.properties
+    paths:
+      - .gradle/wrapper
+      - .gradle/caches
+      - .android-sdk
+  interruptible: true
+
+.android-sdk: &android-sdk
+  before_script:
+    - apt-get update -qq && apt-get install -qq -y --no-install-recommends unzip curl
+    - |
+      if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
+        mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+        curl -sSLo /tmp/tools.zip \
+          "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS}_latest.zip"
+        unzip -q /tmp/tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+        mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+      fi
+    - export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+    - yes | sdkmanager --licenses > /dev/null || true
+    - sdkmanager "platform-tools" "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}" > /dev/null
+    - chmod +x ./gradlew
+
+# A tampered gradle-wrapper.jar runs arbitrary code on every machine that builds this
+# repository, CI runners included, so it is checked before anything else executes it.
+wrapper:checksum:
+  stage: verify
+  image: eclipse-temurin:17-jdk
+  before_script:
+    - apt-get update -qq && apt-get install -qq -y --no-install-recommends curl
+  script:
+    # One block scalar rather than a list of bare commands. A plain YAML scalar
+    # containing ": " parses as a mapping, so the comparison below silently became a
+    # key/value pair instead of a shell line and the job would never have run.
+    - |
+      set -eu
+      GRADLE_VERSION=$(sed -n 's/.*gradle-\([0-9.]*\)-bin.zip/\1/p' gradle/wrapper/gradle-wrapper.properties)
+      echo "Gradle ${GRADLE_VERSION}"
+      curl -sSLo /tmp/expected.sha256 \
+        "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-wrapper.jar.sha256"
+      ACTUAL=$(sha256sum gradle/wrapper/gradle-wrapper.jar | cut -d' ' -f1)
+      EXPECTED=$(cat /tmp/expected.sha256)
+      if [ "${ACTUAL}" != "${EXPECTED}" ]; then
+        echo "wrapper checksum mismatch"
+        echo "  expected ${EXPECTED}"
+        echo "  actual   ${ACTUAL}"
+        exit 1
+      fi
+      echo "wrapper checksum verified"
+
+build:debug:
+  <<: *android-sdk
+  stage: build
+  script:
+    - ./gradlew --no-daemon :app:assembleDebug
+  artifacts:
+    name: "pqvault-debug-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - app/build/outputs/apk/debug/
+    expire_in: 2 weeks
+
+test:unit:
+  <<: *android-sdk
+  stage: test
+  script:
+    - ./gradlew --no-daemon :vault:test :app:testDebugUnitTest
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - vault/build/reports/tests/
+      - app/build/reports/tests/
+    reports:
+      junit:
+        - vault/build/test-results/test/TEST-*.xml
+        - app/build/test-results/testDebugUnitTest/TEST-*.xml
+
+test:lint:
+  <<: *android-sdk
+  stage: test
+  script:
+    - ./gradlew --no-daemon :app:lintDebug
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - app/build/reports/lint-results-debug.html
+      - app/build/reports/lint-results-debug.sarif
+
+# GitLab's Gemnasium analyzer resolves the Gradle graph itself, but it needs the Android
+# SDK present to do it, which the stock analyzer image does not have.
+gemnasium-maven-dependency_scanning:
+  <<: *android-sdk
+  variables:
+    DS_JAVA_VERSION: "17"
+
+snyk:
+  stage: security
+  <<: *android-sdk
+  script:
+    - |
+      if [ -z "$SNYK_TOKEN" ]; then
+        echo "SNYK_TOKEN is not set, skipping"
+        exit 0
+      fi
+    - curl -sSLo /usr/local/bin/snyk https://static.snyk.io/cli/latest/snyk-linux
+    - chmod +x /usr/local/bin/snyk
+    - snyk auth "$SNYK_TOKEN"
+    # Reported but not gating: a fresh advisory against a transitive dependency should
+    # not stop a security fix from being merged. Read the report, then decide.
+    - snyk test --all-sub-projects --severity-threshold=medium --json-file-output=snyk-oss.json || true
+    - snyk code test --json-file-output=snyk-code.json || true
+    - snyk monitor --all-sub-projects || true
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - snyk-oss.json
+      - snyk-code.json
+  allow_failure: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+
+# Complements Gemnasium rather than duplicating it: OSV draws on a different set of
+# advisory databases, and the overlap between the two is not total.
+osv-scanner:
+  stage: security
+  <<: *android-sdk
+  script:
+    - ./gradlew --no-daemon --write-verification-metadata sha256 :app:dependencies :vault:dependencies || true
+    - curl -sSLo /usr/local/bin/osv-scanner https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
+    - chmod +x /usr/local/bin/osv-scanner
+    - osv-scanner scan source --lockfile=gradle/verification-metadata.xml --format=json --output=osv.json || true
+    - osv-scanner scan source --lockfile=gradle/verification-metadata.xml || true
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - osv.json
+      - gradle/verification-metadata.xml
+  allow_failure: true
+
+# The release APK must never be signed with the debug key, and the build is arranged so
+# that it simply comes out unsigned when no keystore is configured. This asserts that,
+# because a regression here is invisible until someone installs the wrong artifact.
+verify:release-not-debug-signed:
+  <<: *android-sdk
+  stage: security
+  script:
+    - ./gradlew --no-daemon :app:assembleRelease
+    - |
+      if ls app/build/outputs/apk/release/*-unsigned.apk >/dev/null 2>&1; then
+        echo "release APK is unsigned, as expected without a keystore"
+      else
+        echo "a signed release APK appeared without a configured keystore" >&2
+        exit 1
+      fi
+  rules:
+    - if: '$PQVAULT_STORE_FILE == null'

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Runtime-requested on Android 13+; without it every sync notification is dropped. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Requested only when the user opens one of the two QR scanners. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- A FIDO hybrid QR proves physical proximity with an encrypted BLE advert. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADVERTISE"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="31" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <!--
+        Android 11 package visibility: without declaring the intent we query for, the
+        browser list comes back empty and the trusted-browser picker looks broken.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@drawable/ic_vault"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PqVault"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Also handles camera apps that do recognise the WebAuthn QR URI. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fido" />
+                <!-- Android scheme matching is case-sensitive; QR payloads use uppercase. -->
+                <data android:scheme="FIDO" tools:ignore="AppLinkUrlError" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            The system-wide passkey provider. Android 14 (API 34) introduced this
+            interface; on older builds the service is simply never bound and the app
+            still works as a standalone, syncing vault.
+        -->
+        <!-- Launched by the system when the user picks us from the credential sheet. -->
+        <activity
+            android:name=".provider.CredentialActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.PqVault.Transparent" />
+
+        <service
+            android:name=".provider.PqVaultCredentialProviderService"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_vault"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/provider" />
+        </service>
+    </application>
+</manifest>

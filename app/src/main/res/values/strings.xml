@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Default locale: English. French lives in values-fr.
+
+    Keep the two files in the same order so a missing translation is obvious at a glance.
+-->
+<resources>
+    <string name="app_name" translatable="false">PQ Vault</string>
+    <string name="provider_settings_subtitle">Synced passkey vault</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_tagline">Your passkeys stay yours. End-to-end encrypted, synced to your own cloud.</string>
+    <string name="feature_webdav_title">WebDAV sync</string>
+    <string name="feature_webdav_body">Nextcloud or any WebDAV server. Nothing passes through a third party.</string>
+    <string name="feature_pq_title">Post-quantum encryption</string>
+    <string name="feature_pq_body">Hybrid ML-KEM-768 and ML-DSA-65 for sharing between devices.</string>
+    <string name="feature_biometric_title">Biometric unlock</string>
+    <string name="feature_biometric_body">Your fingerprint protects the key on this device.</string>
+    <string name="create_vault_title">Create your vault</string>
+    <string name="create_vault_warning">This passphrase is the only thing protecting your passkeys. It cannot be reset.</string>
+    <string name="passphrase">Passphrase</string>
+    <string name="passphrase_hint">At least 12 characters. A string of random words (diceware) beats a complicated one.</string>
+    <string name="confirm">Confirm</string>
+    <string name="create_vault">Create vault</string>
+    <string name="creating">Creating…</string>
+
+    <!-- Unlock -->
+    <string name="vault_locked">Vault locked</string>
+    <string name="unlock">Unlock</string>
+    <string name="fingerprint">Fingerprint</string>
+    <string name="unlock_vault_title">Unlock PQ Vault</string>
+    <string name="unlock_vault_subtitle">Your vault must be open to continue.</string>
+    <string name="cancel">Cancel</string>
+    <string name="use_passphrase_instead">Use passphrase</string>
+    <string name="biometric_prompt_enable_title">Enable biometric unlock</string>
+    <string name="biometric_prompt_enable_subtitle">Your fingerprint will protect the vault key on this device</string>
+    <string name="biometric_prompt_unlock_title">Unlock vault</string>
+    <string name="biometric_prompt_unlock_subtitle">Use your fingerprint to open your passkey vault</string>
+
+    <!-- Vault list -->
+    <string name="my_passkeys">My passkeys</string>
+    <plurals name="passkey_count">
+        <item quantity="one">%d saved</item>
+        <item quantity="other">%d saved</item>
+    </plurals>
+    <string name="action_sync">Sync</string>
+    <string name="action_scan_fido">Scan a passkey QR code</string>
+    <string name="action_lock">Lock</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_delete">Delete</string>
+    <string name="no_cloud_configured">No cloud configured: your passkeys exist only on this device.</string>
+    <string name="empty_title">No passkeys yet</string>
+    <string name="empty_body">Choose \"PQ Vault\" when a site offers to create a passkey.</string>
+    <plurals name="usage_count">
+        <item quantity="one">%d use</item>
+        <item quantity="other">%d uses</item>
+    </plurals>
+
+    <!-- Settings -->
+    <string name="settings">Settings</string>
+    <string name="back">Back</string>
+    <string name="section_webdav">WebDAV cloud</string>
+    <string name="webdav_url">Folder URL</string>
+    <string name="webdav_url_hint">The WebDAV folder that will hold the vault.</string>
+    <string name="webdav_user">Username</string>
+    <string name="webdav_app_password">App password</string>
+    <string name="webdav_app_password_hint">Nextcloud: Settings, Security, Create app password. Never your main password.</string>
+    <string name="webdav_filename">File name</string>
+    <string name="save">Save</string>
+    <string name="section_device_security">This device</string>
+    <string name="biometric_unlock">Biometric unlock</string>
+    <string name="biometric_unavailable">Not available on this device</string>
+    <string name="biometric_explainer">Local shortcut only; the passphrase remains required</string>
+    <string name="section_background_sync">Background sync</string>
+    <string name="device_enrolled">This device is enrolled: it can merge the vault without your passphrase, every 15 minutes.</string>
+    <string name="device_not_enrolled">This device is not yet enrolled as a vault recipient. Without that, no automatic sync is possible.</string>
+    <string name="enroll_device">Enroll this device</string>
+    <string name="section_browsers">Trusted browsers</string>
+    <string name="browsers_explainer">A browser relaying a web request declares the origin itself. It can only be believed if you trust it here, verified by signature. Nothing trusted means every web-origin request is refused.</string>
+    <string name="browsers_none_found">No browser detected on this device.</string>
+    <string name="browser_default">default</string>
+    <string name="section_crypto">Encryption</string>
+    <string name="crypto_vault">Vault</string>
+    <string name="crypto_kdf">Key derivation</string>
+    <string name="crypto_device_sharing">Device sharing</string>
+    <string name="crypto_file_signature">File signature</string>
+    <string name="crypto_passkey_signature">Passkey signature</string>
+    <string name="crypto_note">Passkeys are signed with ES256 because each site dictates the algorithm, and none accept ML-DSA yet. Everything else is already post-quantum.</string>
+
+    <!-- Device pairing -->
+    <string name="section_pairing">Add a device</string>
+    <string name="pairing_explainer">Show this code on the device that already holds the vault, then scan it from the new one. It carries the server settings and the fingerprint of the vault\'s signing key. The passphrase is deliberately not included, so the new device asks for it once.</string>
+    <string name="show_pairing_code">Show pairing code</string>
+    <string name="scan_pairing_code">Scan a pairing code</string>
+    <string name="pairing_code_title">Pair a device</string>
+    <string name="pairing_code_body">Scan this from the new device. It expires in 5 minutes.</string>
+    <string name="pairing_scan_title">Scan the pairing code</string>
+    <string name="pairing_scan_permission">Camera access is needed to scan the code.</string>
+    <string name="grant_camera">Allow camera</string>
+    <string name="pairing_success">Device paired. Sync settings received.</string>
+    <string name="pairing_invalid">This code is not a PQ Vault pairing code.</string>
+    <string name="pairing_expired">This code has expired. Generate a new one.</string>
+    <string name="close">Close</string>
+
+    <!-- Cross-device WebAuthn -->
+    <string name="hybrid_scan_title">Use a passkey on another device</string>
+    <string name="hybrid_scan_body">Scan the FIDO QR code shown by the browser on your computer or tablet.</string>
+    <string name="hybrid_permissions">Camera and nearby-device access are needed to scan the code and prove that this phone is close to the other device.</string>
+    <string name="hybrid_grant_permissions">Allow camera and Bluetooth</string>
+    <string name="hybrid_permissions_denied">Bluetooth permission is required to use a passkey on another device.</string>
+    <string name="hybrid_invalid_code">This is not a valid FIDO passkey QR code. Point the camera at the code shown by the browser.</string>
+    <string name="hybrid_unlock_to_continue">Unlock your vault to continue the scanned passkey request.</string>
+    <string name="hybrid_title">Passkey request</string>
+    <string name="hybrid_connecting">Connecting to the encrypted tunnel…</string>
+    <string name="hybrid_waiting_computer">Waiting for the other device nearby…</string>
+    <string name="hybrid_securing">Securing the connection…</string>
+    <string name="hybrid_create_question">Create a passkey for %s?</string>
+    <string name="hybrid_sign_question">Sign in to %s?</string>
+    <string name="hybrid_account">Account: %s</string>
+    <string name="hybrid_create_action">Create passkey</string>
+    <string name="reject">Reject</string>
+    <string name="hybrid_complete">The request was approved. You can return to the other device.</string>
+    <string name="hybrid_failed">The cross-device passkey request failed.</string>
+    <string name="hybrid_failed_detail">Cross-device request failed: %s</string>
+    <string name="hybrid_rejected">Request rejected.</string>
+    <string name="hybrid_credential_exists">A passkey already exists for this account.</string>
+    <string name="hybrid_uv_unavailable">This site requires user verification, but no secure screen lock is available.</string>
+    <string name="hybrid_verify_title">Confirm the passkey request</string>
+    <string name="hybrid_verify_subtitle">Verify your identity to continue with %s</string>
+
+    <!-- Messages -->
+    <string name="vault_created">Vault created.</string>
+    <string name="passphrase_too_short">The passphrase must be at least %d characters.</string>
+    <string name="passphrase_mismatch">The two passphrases do not match.</string>
+    <string name="wrong_passphrase">Wrong passphrase.</string>
+    <string name="unlock_first">Unlock the vault first.</string>
+    <string name="biometric_enabled">Biometric unlock enabled.</string>
+    <string name="biometric_disabled">Biometric unlock disabled.</string>
+    <string name="biometric_not_configured">Biometric unlock is not set up.</string>
+    <string name="biometric_invalidated">A new fingerprint was enrolled, so the biometric key was invalidated. Use your passphrase, then turn it back on.</string>
+    <string name="settings_saved">Settings saved.</string>
+    <string name="device_enrolled_message">Device enrolled: background sync is now possible.</string>
+    <string name="sync_uploaded">Vault uploaded (v%d).</string>
+    <string name="sync_pushed">Synced (v%d).</string>
+    <string name="sync_merged">Merged (v%d).</string>
+    <plurals name="sync_merged_conflicts">
+        <item quantity="one">Merged (v%1$d), %2$d conflict resolved.</item>
+        <item quantity="other">Merged (v%1$d), %2$d conflicts resolved.</item>
+    </plurals>
+    <string name="sync_remote_unreadable">The remote vault does not open with this key.</string>
+    <string name="no_webdav_configured">No WebDAV server configured.</string>
+    <string name="vault_locked_error">The vault is locked.</string>
+    <string name="unlock_cancelled">Unlock cancelled.</string>
+    <string name="untrusted_rollback">The local file is older (v%1$d) than the last accepted version (v%2$d).</string>
+    <string name="untrusted_signature">The vault signature is invalid.</string>
+    <string name="untrusted_signer">The vault is signed by an unknown key.</string>
+    <string name="untrusted_malformed">Unreadable vault: %s</string>
+
+    <!-- Notifications -->
+    <string name="channel_sync_name">Sync</string>
+    <string name="channel_sync_description">Result of vault synchronisations</string>
+    <string name="channel_security_name">Security alerts</string>
+    <string name="channel_security_description">Remote vault tampered with, replayed, or signed by an unknown key</string>
+    <string name="notif_vault_merged">Vault merged</string>
+    <string name="notif_vault_synced">Vault synced</string>
+    <plurals name="notif_passkeys_on_cloud">
+        <item quantity="one">%d passkey on your cloud</item>
+        <item quantity="other">%d passkeys on your cloud</item>
+    </plurals>
+    <plurals name="notif_conflicts_resolved">
+        <item quantity="one">%d conflict resolved</item>
+        <item quantity="other">%d conflicts resolved</item>
+    </plurals>
+    <string name="notif_conflicts_body">The most recent version was kept for each affected passkey</string>
+    <string name="notif_sync_failed">Sync failed</string>
+    <string name="notif_remote_untrusted">Remote vault refused</string>
+
+    <!-- Credential provider -->
+    <string name="provider_save_unlocked">Save the passkey in your synced vault</string>
+    <string name="provider_save_locked">Unlock, then save to your vault</string>
+    <string name="provider_caller_rejected">Caller refused: %s</string>
+    <string name="provider_not_authorised">%1$s is not authorised by %2$s</string>
+    <string name="provider_no_passkey">Passkey not found.</string>
+    <string name="provider_bad_request">Incomplete request.</string>
+    <string name="provider_no_algorithm">No algorithm in common with the site.</string>
+
+    <!-- Sync verdicts. The engine reports facts; these are the words. -->
+    <string name="sync_untrusted_rollback">The server returned version %1$d, older than version %2$d which this device has already accepted. Nothing was uploaded.</string>
+    <string name="sync_untrusted_signature">The remote vault\'s signature is invalid.</string>
+    <string name="sync_untrusted_signer">The remote vault was signed by an unknown key.</string>
+    <string name="sync_untrusted_malformed">The remote vault is unreadable: %s</string>
+    <string name="sync_read_failed">Could not read the remote vault: %s</string>
+    <string name="sync_create_failed">Could not create the remote vault: %s</string>
+    <string name="sync_write_failed">Could not write the remote vault: %s</string>
+    <string name="sync_contended">Gave up after %d attempts: another device kept writing to the vault.</string>
+    <string name="sync_no_local_vault">No vault on this device yet.</string>
+    <string name="sync_device_key_rejected">This device\'s key no longer opens the local vault. Enrol it again from Settings.</string>
+    <string name="sync_device_identity_lost">This device\'s identity is no longer readable. Enrol the device again from Settings to restore background sync.</string>
+
+    <!-- Recovering from a refused remote vault -->
+    <string name="security_alert_title">Remote vault refused</string>
+    <string name="security_alert_rollback_help">If you have just restored the server from a backup, this is expected. Accepting takes the server\'s version as the new reference; your local passkeys are merged, not replaced.</string>
+    <string name="security_alert_accept">Accept the server version</string>
+    <string name="security_alert_accepted">Server version accepted. Sync again to merge.</string>
+    <string name="dismiss">Dismiss</string>
+
+    <!-- Deleting a passkey -->
+    <string name="delete_passkey_title">Delete this passkey?</string>
+    <string name="delete_passkey_body">%1$s (%2$s) will be deleted from every synced device. If it is your only way in to that account, you will lose access.</string>
+    <string name="delete_passkey_confirm">Delete</string>
+    <string name="passkey_deleted">Passkey deleted.</string>
+
+    <!-- Settings validation -->
+    <string name="webdav_url_malformed">This address is not a valid URL.</string>
+    <string name="webdav_url_needs_https">The address must start with https://. The app password travels on every sync and plain HTTP would expose it.</string>
+    <string name="vault_create_failed">The vault could not be created.</string>
+
+    <!-- Password field -->
+    <string name="reveal">Show</string>
+    <string name="hide">Hide</string>
+
+    <!-- Pairing a second device and restoring the vault it points at -->
+    <string name="pairing_code_too_large">This pairing code is too long to fit in a QR code. Shorten the WebDAV address and try again.</string>
+    <string name="onboarding_scan_pairing">Scan a pairing code</string>
+    <string name="restore_title">Restore the shared vault</string>
+    <string name="restore_body">This device is paired to a server that already holds a vault. Enter its passphrase to bring it down; your passkeys are merged, and this device enrols itself for background sync.</string>
+    <string name="restore_action">Restore the vault</string>
+    <string name="restore_or_create">Or create a separate new vault below. Only do this if the server does not hold one yet.</string>
+    <string name="restore_success">Vault restored and this device enrolled.</string>
+    <string name="restore_not_found">No vault at that address yet. Create one below and it will be uploaded.</string>
+    <string name="restore_failed">Could not fetch the vault: %s</string>
+    <string name="restore_needs_passphrase">Enter the vault passphrase.</string>
+
+    <!-- Idle lock -->
+    <string name="auto_lock_title">Lock when idle</string>
+    <string name="auto_lock_explainer">An unlocked vault is held in memory. Closing the app is not enough on its own: Android can keep the process alive for hours, and the passkey provider can open the vault with no screen showing at all.</string>
+    <string name="auto_lock_never">Never</string>
+    <string name="auto_lock_minutes">%d min</string>
+</resources>

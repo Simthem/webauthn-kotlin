@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cloud backup is off entirely (android:allowBackup="false"), so these rules only
+    govern the Android 12+ device-to-device transfer, which allowBackup does not cover.
+
+    The vault file itself may travel: it is encrypted under the passphrase and useless
+    without it, and carrying it over is exactly what someone changing phones wants.
+
+    The two Keystore-sealed files must not. Their keys are bound to the old phone's
+    secure element and cannot leave it, so copying the files produces ciphertext nothing
+    on the new device can open: a device identity that looks enrolled but cannot sync,
+    and a biometric shortcut that can never succeed. Leaving them behind makes the new
+    phone cleanly un-enrolled instead, which the app knows how to explain and recover
+    from. The settings store is sealed the same way and goes with them.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="device_identity.bin" />
+        <exclude domain="file" path="biometric_unlock.bin" />
+        <exclude domain="file" path="settings.bin" />
+    </device-transfer>
+</data-extraction-rules>

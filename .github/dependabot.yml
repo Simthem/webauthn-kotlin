@@ -1,0 +1,33 @@
+# Dependabot is the counterpart to the scanners in ci.yml: they report what is
+# vulnerable, this opens the pull request that fixes it. Both matter, because a finding
+# nobody acts on is the same as no finding at all.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # One pull request per family rather than fifteen: Compose and AndroidX ship in
+      # lockstep and reviewing them apart tells you less, not more.
+      androidx:
+        patterns:
+          - "androidx.*"
+      compose:
+        patterns:
+          - "androidx.compose*"
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "org.jetbrains.kotlinx*"
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
