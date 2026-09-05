@@ -1,6 +1,13 @@
 package com.pqvault.core.crypto
 
 import com.google.common.truth.Truth.assertThat
+import java.security.SecureRandom
+import org.bouncycastle.crypto.generators.MLKEMKeyPairGenerator
+import org.bouncycastle.crypto.params.MLKEMKeyGenerationParameters
+import org.bouncycastle.crypto.params.MLKEMParameters
+import org.bouncycastle.crypto.params.MLKEMPrivateKeyParameters
+import org.bouncycastle.crypto.params.MLKEMPublicKeyParameters
+import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 
@@ -105,5 +112,35 @@ class HybridKemTest {
         encoded[0] = (HybridKem.X25519_PUBLIC_SIZE - 1).toByte()
 
         assertThrows<IllegalArgumentException> { HybridKem.PrivateKey.decode(encoded) }
+    }
+
+    /**
+     * The counterpart of the signing case: device identities written before the move to
+     * BouncyCastle's current APIs carry the expanded ML-KEM private key. Refusing it
+     * locked those devices out of every vault they had been enrolled in.
+     */
+    @Test
+    fun `the expanded ML-KEM private key of an older device still decapsulates`() {
+        val random = SecureRandom()
+        val xPrivate = X25519PrivateKeyParameters(random)
+        val generator = MLKEMKeyPairGenerator()
+        generator.init(MLKEMKeyGenerationParameters(random, MLKEMParameters.ml_kem_768))
+        val pair = generator.generateKeyPair()
+        val pqPublic = pair.public as MLKEMPublicKeyParameters
+        val pqPrivate = pair.private as MLKEMPrivateKeyParameters
+
+        assertThat(pqPrivate.encoded.size).isEqualTo(HybridKem.ML_KEM_768_EXPANDED_PRIVATE_SIZE)
+        assertThat(pqPrivate.seed.size).isEqualTo(HybridKem.ML_KEM_SEED_SIZE)
+
+        val publicKey = HybridKem.PublicKey(xPrivate.generatePublicKey().encoded, pqPublic.encoded)
+        val older = HybridKem.PrivateKey(xPrivate.encoded, pqPrivate.encoded)
+
+        assertThat(HybridKem.PrivateKey.decode(older.encoded()).mlKemSeed.size)
+            .isEqualTo(HybridKem.ML_KEM_768_EXPANDED_PRIVATE_SIZE)
+
+        val encapsulation = HybridKem.encapsulate(publicKey, random)
+        val recovered = HybridKem.decapsulate(older, publicKey, encapsulation.ciphertext)
+
+        assertThat(recovered).isEqualTo(encapsulation.sharedSecret)
     }
 }

@@ -32,6 +32,15 @@ object HybridSignature {
     const val ED25519_PRIVATE_SIZE = 32
     const val ED25519_SIGNATURE_SIZE = 64
     const val ML_DSA_SEED_SIZE = 32
+
+    /**
+     * The expanded ML-DSA-65 private key, which is what vaults written before the move to
+     * BouncyCastle's current APIs carry in place of the seed. The seed is hashed to derive
+     * the expanded key, so it cannot be recovered from one: a vault written that way keeps
+     * this encoding for the life of its signing key. BouncyCastle accepts either form and
+     * produces the same signatures from both, so nothing else has to know which it holds.
+     */
+    const val ML_DSA_65_EXPANDED_PRIVATE_SIZE = 4032
     const val ML_DSA_65_PUBLIC_SIZE = 1952
     const val ML_DSA_65_SIGNATURE_SIZE = 3309
 
@@ -59,7 +68,10 @@ object HybridSignature {
     class PrivateKey(val ed25519: ByteArray, val mlDsaSeed: ByteArray) {
         init {
             require(ed25519.size == ED25519_PRIVATE_SIZE) { "bad Ed25519 private key size ${ed25519.size}" }
-            require(mlDsaSeed.size == ML_DSA_SEED_SIZE) { "bad ML-DSA seed size ${mlDsaSeed.size}" }
+            require(
+                mlDsaSeed.size == ML_DSA_SEED_SIZE ||
+                    mlDsaSeed.size == ML_DSA_65_EXPANDED_PRIVATE_SIZE,
+            ) { "bad ML-DSA private key size ${mlDsaSeed.size}" }
         }
     }
 

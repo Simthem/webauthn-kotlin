@@ -128,6 +128,15 @@ encrypted file instead. The two models are incompatible: credentials created wit
 - ML-KEM and ML-DSA use BouncyCastle's current low-level APIs instead of their deprecated
   `pqc.crypto` predecessors. Hybrid public/private keys and signatures now reject wrong
   lengths before copying or parsing attacker-controlled data.
+- Those length checks first accepted only the 32-byte ML-DSA seed and the 64-byte ML-KEM
+  seed, which are what the current APIs write. A vault created earlier carries the
+  expanded private key instead, 4032 and 2400 bytes, so every such vault stopped opening
+  with `bad ML-DSA seed size 4032` and every device enrolled earlier lost access. Both
+  encodings are accepted now. They are told apart by length, BouncyCastle rebuilds the
+  same key from either, and a test pins that the two produce byte-identical signatures and
+  the same public key. The seed is hashed to derive the expanded key and cannot be
+  recovered from it, so a vault written the old way keeps that encoding until its signing
+  key is deliberately rotated.
 - The BLE advert's block encryption no longer goes through
   `Cipher.getInstance("AES/ECB/NoPadding")`. It asks BouncyCastle for the raw block
   cipher, which is what the CTAP hybrid transport actually specifies. ECB is a rule for

@@ -39,6 +39,13 @@ object HybridKem {
     const val X25519_PUBLIC_SIZE = 32
     private const val X25519_SHARED_SIZE = 32
     const val ML_KEM_SEED_SIZE = 64
+
+    /**
+     * The expanded ML-KEM-768 private key, carried by device identities written before the
+     * move to BouncyCastle's current APIs. As with the signature seed it cannot be
+     * recovered from the expanded form, and BouncyCastle accepts both.
+     */
+    const val ML_KEM_768_EXPANDED_PRIVATE_SIZE = 2400
     const val ML_KEM_768_PUBLIC_SIZE = 1184
     const val ML_KEM_768_CIPHERTEXT_SIZE = 1088
 
@@ -66,16 +73,20 @@ object HybridKem {
     class PrivateKey(val x25519: ByteArray, val mlKemSeed: ByteArray) {
         init {
             require(x25519.size == X25519_PUBLIC_SIZE) { "bad X25519 private key size ${x25519.size}" }
-            require(mlKemSeed.size == ML_KEM_SEED_SIZE) { "bad ML-KEM seed size ${mlKemSeed.size}" }
+            require(
+                mlKemSeed.size == ML_KEM_SEED_SIZE ||
+                    mlKemSeed.size == ML_KEM_768_EXPANDED_PRIVATE_SIZE,
+            ) { "bad ML-KEM private key size ${mlKemSeed.size}" }
         }
 
         fun encoded(): ByteArray = byteArrayOf(x25519.size.toByte()) + x25519 + mlKemSeed
 
         companion object {
             fun decode(bytes: ByteArray): PrivateKey {
-                require(bytes.size == 1 + X25519_PUBLIC_SIZE + ML_KEM_SEED_SIZE) {
-                    "bad hybrid private key size ${bytes.size}"
-                }
+                require(
+                    bytes.size == 1 + X25519_PUBLIC_SIZE + ML_KEM_SEED_SIZE ||
+                        bytes.size == 1 + X25519_PUBLIC_SIZE + ML_KEM_768_EXPANDED_PRIVATE_SIZE,
+                ) { "bad hybrid private key size ${bytes.size}" }
                 val xLen = bytes[0].toInt() and 0xff
                 require(xLen == X25519_PUBLIC_SIZE) { "bad encoded X25519 private key size $xLen" }
                 return PrivateKey(
