@@ -31,7 +31,13 @@ android {
     compileSdkVersion 35
 
     defaultConfig {
-        minSdkVersion 28
+        // 30 rather than 28. Below API 30 this module fell back to
+        // KeyguardManager.createConfirmDeviceCredentialIntent, which returns a plain
+        // boolean: the signature was produced after it, never bound to the
+        // authentication by a CryptoObject. The app that consumes this module is
+        // minSdk 30 and the library is no longer published, so that path was reachable
+        // by nothing and is now gone.
+        minSdkVersion 30
         targetSdk 35
         versionCode 1
         versionName "1.0"

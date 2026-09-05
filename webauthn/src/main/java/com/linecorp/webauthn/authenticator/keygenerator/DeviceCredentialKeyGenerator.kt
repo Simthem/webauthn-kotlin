@@ -16,7 +16,6 @@
 
 package com.linecorp.webauthn.authenticator.keygenerator
 
-import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
@@ -65,8 +64,7 @@ class DeviceCredentialKeyGenerator : Fido2KeyGenerator() {
         challenge: ByteArray?,
         publicKeyAlgorithm: COSEAlgorithmIdentifier,
         isStrongBoxBacked: Boolean,
-        userAuthenticationRequired: Boolean,
-        userAuthenticationValidityDurationSeconds: Int = 5
+        userAuthenticationRequired: Boolean
     ): KeyPair {
         synchronized(lock) {
             val keyProperties = publicKeyAlgorithm.getKeyProperties()
@@ -92,19 +90,13 @@ class DeviceCredentialKeyGenerator : Fido2KeyGenerator() {
                     if (challenge != null) {
                         setAttestationChallenge(challenge)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        setUserAuthenticationParameters(
-                            0,
-                            KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
-                        )
-                    } else {
-                        // Replaced by setUserAuthenticationParameters in API 30, which the
-                        // branch above uses. This module still declares minSdk 28, so API 28
-                        // and 29 have no other way to bound how long an unlock stays valid.
-                        // Delete this branch, and the suppression, if minSdk ever reaches 30.
-                        @Suppress("DEPRECATION")
-                        setUserAuthenticationValidityDurationSeconds(userAuthenticationValidityDurationSeconds)
-                    }
+                    // A zero-second window means every use of the key needs its own
+                    // authentication. The pre-30 alternative kept the key usable for a
+                    // number of seconds after one unlock, which is a weaker guarantee.
+                    setUserAuthenticationParameters(
+                        0,
+                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
+                    )
                     build()
                 }
             kpg.initialize(parameterSpec)

@@ -94,10 +94,15 @@ encrypted file instead. The two models are incompatible: credentials created wit
   shape and, worse, removed the database rows while leaving the Keystore keys behind. It
   now deletes the key alongside each credential and takes the same lock as every other
   mutating operation.
-- The two remaining deprecated framework calls in `:webauthn` carry an explicit
-  suppression and the reason it is there. Both replacements need API 30 and the module
-  still declares `minSdk 28`, so the suppressions say what has to change before the calls
-  can go.
+- Sources are kept to plain ASCII. The directory tree in the README, the ellipses in the
+  interface strings and the quotation marks in the French translation are written with
+  ordinary characters. Android Lint's `TypographyEllipsis`, which asks for the opposite,
+  is disabled with that reason recorded next to it.
+- `SecureRandom` is held once per class in `Fido2Util` and in the `rptest` harness rather
+  than constructed inside the method that draws from it, which reseeded from the system
+  entropy pool on every call for no benefit.
+- A reviewed Gitleaks finding is recorded in `.gitleaksignore`. Its `generic-api-key` rule
+  fired on the algorithm name `XChaCha20-Poly1305` in the release notes, on entropy alone.
 
 ### Removed
 
@@ -183,6 +188,16 @@ encrypted file instead. The two models are incompatible: credentials created wit
   process, so until now any other application could launch the device-credential prompt.
 - The biometric callbacks check `continuation.isActive` before resuming. The framework may
   call back more than once, and resuming a continuation that has already completed throws.
+- `:webauthn` moves to `minSdk 30` and its pre-30 device-credential path is deleted, along
+  with `KeyguardManagerWrapper`, its transparent activity and the manifest entry for it.
+  That path answered with a plain boolean and the signature was produced *after* it, never
+  bound to the authentication by a `CryptoObject`, which is the same weakness already
+  fixed in `HybridUserVerification`. Everything from API 30 up already went through
+  `BiometricPrompt` with `BIOMETRIC_STRONG or DEVICE_CREDENTIAL` and a real `CryptoObject`.
+  The key generator loses its fallback to `setUserAuthenticationValidityDurationSeconds`
+  at the same time, so a key can no longer stay usable for a few seconds after one unlock:
+  every use needs its own authentication. The module is not published and the application
+  is `minSdk 30`, so nothing could reach the deleted path.
 
 ## 1.1.3 (2025-09-16)
 

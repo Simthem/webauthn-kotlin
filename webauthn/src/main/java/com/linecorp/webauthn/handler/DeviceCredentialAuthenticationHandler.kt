@@ -17,7 +17,6 @@
 package com.linecorp.webauthn.handler
 
 import android.content.Context
-import android.os.Build
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -35,29 +34,19 @@ internal class DeviceCredentialAuthenticationHandler(
     private val authHandlerDispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) : AuthenticationHandler {
 
-    private val keyguardManagerWrapper = KeyguardManagerWrapper()
-
-    override fun isSupported(context: Context): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        // API level >= 30
+    override fun isSupported(context: Context): Boolean {
         val biometricManager = BiometricManager.from(context)
-        biometricManager.canAuthenticate(
+        return biometricManager.canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_STRONG or
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL
         ) == BiometricManager.BIOMETRIC_SUCCESS
-    } else {
-        // API level < 30
-        keyguardManagerWrapper.isSupported(context)
     }
 
     override suspend fun authenticate(
         activity: FragmentActivity,
         fido2PromptInfo: Fido2PromptInfo?,
         signatureProvider: (() -> Signature)?
-    ): Fido2UserAuthResult = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        authenticateUserWithBiometricPrompt(activity, fido2PromptInfo, signatureProvider)
-    } else {
-        authenticateUserWithKeyguardManager(activity, fido2PromptInfo, signatureProvider)
-    }
+    ): Fido2UserAuthResult = authenticateUserWithBiometricPrompt(activity, fido2PromptInfo, signatureProvider)
 
     private suspend fun authenticateUserWithBiometricPrompt(
         activity: FragmentActivity,
@@ -123,39 +112,6 @@ internal class DeviceCredentialAuthenticationHandler(
             } else {
                 biometricPrompt.authenticate(promptInfo)
             }
-        }
-    }
-
-    private suspend fun authenticateUserWithKeyguardManager(
-        activity: FragmentActivity,
-        fido2PromptInfo: Fido2PromptInfo?,
-        signatureProvider: (() -> Signature)?
-    ): Fido2UserAuthResult = withContext(authHandlerDispatcher) {
-        try {
-            keyguardManagerWrapper.authenticate(activity, fido2PromptInfo)
-            val signature = signatureProvider?.invoke()
-            return@withContext Fido2UserAuthResult(signature = signature)
-        } catch (e: KeyguardManagerWrapper.KeyguardNotSecuredException) {
-            throw AuthenticationHandler.AuthenticationErrorException(
-                message = "Keyguard not secured",
-                cause = e
-            )
-        } catch (e: KeyguardManagerWrapper.DeviceCredentialIntentNotAvailableException) {
-            throw AuthenticationHandler.AuthenticationErrorException(
-                message = "Device credential intent not available",
-                cause = e
-            )
-        } catch (e: KeyguardManagerWrapper.KeyguardManagerAuthenticationFailedException) {
-            throw AuthenticationHandler.AuthenticationErrorException(
-                errorCode = e.errorCode,
-                message = e.message,
-                cause = e
-            )
-        } catch (e: Exception) {
-            throw AuthenticationHandler.AuthenticationErrorException(
-                message = "An unexpected error occurred",
-                cause = e
-            )
         }
     }
 }

@@ -32,6 +32,11 @@ class Fido2Util {
     companion object {
         private var originOverride: String? = null
 
+        // One seeded instance for the process. A fresh SecureRandom per call reseeds from
+        // the system entropy pool every time, which buys nothing and is what CodeQL's
+        // "random used only once" rule points at.
+        private val secureRandom = SecureRandom()
+
         fun setWebAuthnOrigin(origin: String?) {
             originOverride = origin
         }
@@ -64,7 +69,7 @@ class Fido2Util {
 
         fun generateRandomByteArray(numByte: Int): ByteArray {
             try {
-                return ByteArray(numByte).also { SecureRandom().nextBytes(it) }
+                return ByteArray(numByte).also { secureRandom.nextBytes(it) }
             } catch (e: Throwable) {
                 throw WebAuthnException.UtilityException("Cannot generate random byte array.", e)
             }

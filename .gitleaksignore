@@ -1,0 +1,10 @@
+# Findings reviewed by hand and confirmed not to be secrets.
+#
+# Gitleaks prints the fingerprint of each finding for exactly this purpose. Add a line
+# only after opening the commit and the line it names, and say why it is not a secret.
+
+# generic-api-key fired on the algorithm name "XChaCha20-Poly1305" in the release notes,
+# on entropy alone. It is a public cipher name, printed in the CHANGELOG next to the
+# other primitives the vault format uses, and it appears the same way throughout the
+# sources and the README.
+4908ed3a6b08f14fce0ae342a945a5623c141b91:CHANGELOG.md:generic-api-key:17

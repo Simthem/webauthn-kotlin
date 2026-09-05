@@ -24,8 +24,12 @@ class RpTestActivity : AppCompatActivity() {
 
     private lateinit var output: TextView
 
+    // Held for the life of the activity rather than built per challenge: a new
+    // SecureRandom reseeds from the system pool on every call for no benefit.
+    private val secureRandom = SecureRandom()
+
     private fun challenge(): String {
-        val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        val bytes = ByteArray(32).also { secureRandom.nextBytes(it) }
         return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
     }
 
