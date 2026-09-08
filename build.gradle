@@ -55,6 +55,26 @@ subprojects {
                 details.useVersion(rootProject.protobufVersion)
                 details.because("protobuf-java releases before 3.25.5 are vulnerable to CVE-2024-7254")
             }
+            // room-compiler drags in guava 31.1-jre on the KSP processor classpath, which
+            // still creates its temporary directories world-readable (CVE-2023-2976).
+            // Only the artifact named "guava": listenablefuture and failureaccess share
+            // the group and are versioned independently.
+            if (details.requested.group == "com.google.guava" &&
+                details.requested.name == "guava") {
+                details.useVersion(rootProject.guavaVersion)
+                details.because("guava before 32.0.0 creates temp files with insecure permissions (CVE-2023-2976)")
+            }
+            // The Kotlin compiler plugins on this build resolve 2.2.10, but the UTP and
+            // KSP processor classpaths pull 1.8.21 / 1.9.0 transitively, which still have
+            // the world-readable createTempDir/createTempFile of CVE-2020-29582. Matched
+            // on the name prefix so kotlin-stdlib-common and the empty jdk7/jdk8 shims
+            // move with it; a group-wide force would also hit kotlin-compiler-embeddable
+            // and the Gradle plugin, which are versioned on their own lines.
+            if (details.requested.group == "org.jetbrains.kotlin" &&
+                details.requested.name.startsWith("kotlin-stdlib")) {
+                details.useVersion(rootProject.kotlinVersion)
+                details.because("kotlin-stdlib before 2.1.0 leaks temp file contents to other local users (CVE-2020-29582)")
+            }
             if (details.requested.group == "ch.qos.logback") {
                 details.useVersion(rootProject.logbackVersion)
                 details.because("Logback 1.5.37 fully fixes CVE-2026-13006 and supersedes the vulnerable 1.3 line")

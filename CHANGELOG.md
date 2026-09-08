@@ -1,3 +1,27 @@
+## [2.0.1](https://github.com/Simthem/webauthn-kotlin/compare/v2.0.0...v2.0.1) (2026-09-08)
+
+### Security
+
+- `kotlin-stdlib` is held at 2.2.10 across every Gradle configuration. The compiler plugins
+  on this build already resolved it, but the Android Gradle Plugin's Unified Test Platform
+  pulled 1.8.21 and the KSP processor classpath 1.9.0, releases whose `createTempDir` and
+  `createTempFile` still leave their contents readable by any other local user
+  (CVE-2020-29582). The floor matches on the `kotlin-stdlib` name prefix, so
+  `kotlin-stdlib-common` and the empty `-jdk7` and `-jdk8` shims move with it; matching the
+  group alone would also drag `kotlin-compiler-embeddable` and the Gradle plugin off their
+  own version lines.
+- `guava` is held at 32.1.3-jre, for the same class of defect. `room-compiler` 2.6.1
+  brought 31.1-jre onto that same KSP processor classpath, where the temporary file and
+  directory helpers create their entries in the shared system temp directory with
+  permissions that expose them to other local users (CVE-2023-2976). Only the artifact
+  named `guava` is forced: `listenablefuture` and `failureaccess` share the group but are
+  versioned independently. The floor is the last 32.x release rather than a 33.x one,
+  because it clears the advisory at the smallest API distance from the version
+  `room-compiler` was built against.
+- Neither library reaches the APK, which is why both floors belong in the same project-wide
+  block as Netty, Protobuf and Logback rather than in any module's dependency list. They do
+  run in CI, and that is exactly the local-user exposure the two advisories describe.
+
 ## [2.0.0](https://github.com/Simthem/webauthn-kotlin/compare/v1.1.3...v2.0.0) (2026-09-04)
 
 The repository becomes **PQ Vault**, an Android passkey manager whose vault is synced to a

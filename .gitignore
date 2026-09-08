@@ -25,6 +25,9 @@ local.properties
 *.keystore
 keystore.properties
 
+# Security tests
+snyk-*.*
+
 # OS and editor backups
 .DS_Store
 *~
