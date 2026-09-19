@@ -1,3 +1,17 @@
+## [2.0.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.0.1...v2.0.2) (2026-09-19)
+
+### Changed
+
+- Prepared the PQ Vault Android application release 2.0.2 (`versionCode` 2).
+
+### Security
+
+- Raised the project-wide transitive tooling floors to Netty 4.1.138.Final and
+  Logback 1.6.3. The Logback update fixes CVE-2026-9828, CVE-2026-10532 and
+  CVE-2026-19880; the Netty upstream release did not yet have assigned CVE
+  identifiers. These versions apply consistently to build and test
+  configurations alongside the existing Protobuf, Kotlin and Guava floors.
+
 ## [2.0.1](https://github.com/Simthem/webauthn-kotlin/compare/v2.0.0...v2.0.1) (2026-09-08)
 
 ### Security
