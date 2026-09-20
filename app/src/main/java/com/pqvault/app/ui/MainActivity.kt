@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -65,6 +66,20 @@ class MainActivity : AppCompatActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     val state by model.state.collectAsStateWithLifecycle()
+
+                    // Consume Android's button and predictive-back gesture only while
+                    // there is an in-app destination to pop. At a root screen the
+                    // system keeps its normal behaviour and leaves the activity.
+                    BackHandler(
+                        enabled = state.overlay != VaultViewModel.Overlay.None ||
+                            state.screen == VaultViewModel.Screen.Settings,
+                    ) {
+                        if (state.overlay != VaultViewModel.Overlay.None) {
+                            model.closeOverlay()
+                        } else {
+                            model.closeSettings()
+                        }
+                    }
 
                     // Transient banners clear themselves so they do not pile up; the
                     // security alert deliberately does not, and must be dismissed.

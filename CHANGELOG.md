@@ -1,3 +1,14 @@
+## [2.0.3](https://github.com/Simthem/webauthn-kotlin/compare/v2.0.2...v2.0.3) (2026-09-20)
+
+### Fixed
+
+- Restored Android GitHub Actions checks by pinning `android-actions/setup-android`
+  to a release that no longer requests the removed `tools` package and by installing
+  the Android 35 and 36 platforms explicitly.
+- Restored Snyk execution by using the `snyk` command installed by the setup action.
+- Made the Android system back button and predictive back gesture close a PQ Vault
+  overlay first, then return from Settings to the vault.
+
 ## [2.0.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.0.1...v2.0.2) (2026-09-19)
 
 ### Changed

@@ -43,7 +43,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      # v4.0.1 still tried to install the SDK's removed `tools` package. v4.0.4
+      # defaults to supported command-line tools and remains SHA-pinned.
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-35 platforms;android-36'
 
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
@@ -91,7 +95,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-35 platforms;android-36'
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       - name: Lint
@@ -171,8 +177,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         if: matrix.language == 'java-kotlin'
+        with:
+          packages: 'platform-tools platforms;android-35 platforms;android-36'
 
       - name: Initialise CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
@@ -214,7 +222,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platform-tools platforms;android-35 platforms;android-36'
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
       # Resolves the actual dependency graph rather than parsing build files, so
@@ -332,8 +342,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         if: steps.token.outputs.present == 'true'
+        with:
+          packages: 'platform-tools platforms;android-35 platforms;android-36'
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         if: steps.token.outputs.present == 'true'
 
@@ -349,10 +361,9 @@ jobs:
       - name: Snyk Open Source
         if: steps.token.outputs.present == 'true'
         run: |
-          # The setup action's `snyk` shell wrapper expands arguments through `eval`.
-          # Call the verified binary it installs directly so the regex remains one
-          # literal argument instead of becoming shell syntax.
-          snyk-linux test --all-sub-projects --severity-threshold=medium \
+          # The setup action exposes the stable public `snyk` command. Its internal
+          # platform-specific filename is deliberately not part of that contract.
+          snyk test --all-sub-projects --severity-threshold=medium \
             --configuration-matching='^(releaseRuntimeClasspath|runtimeClasspath)$' \
             --sarif-file-output=snyk-oss.sarif \
             --org=themthem58
@@ -361,7 +372,7 @@ jobs:
         # Still run the source scan if the dependency scan found something. Both SARIF
         # reports then reach the Security tab before the job correctly remains red.
         if: always() && steps.token.outputs.present == 'true'
-        run: snyk-linux code test --sarif-file-output=snyk-code.sarif --org=themthem58
+        run: snyk code test --sarif-file-output=snyk-code.sarif --org=themthem58
 
       - name: Upload Snyk Open Source SARIF
         if: always() && steps.token.outputs.present == 'true' && hashFiles('snyk-oss.sarif') != ''
