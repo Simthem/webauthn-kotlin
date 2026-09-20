@@ -357,14 +357,16 @@ jobs:
       # which drags in a whole gRPC, netty, protobuf and logback stack. None of it is on
       # any compile or runtime classpath, none of it reaches the APK, and it produced
       # roughly 160 advisories about code this project never executes. Restricting the
-      # scan to the runtime classpaths reports what actually ships.
+      # scan to runtime classpaths reports what actually ships. The setup action's
+      # shell wrapper expands its arguments with eval, so this deliberately uses a
+      # plain, case-insensitive Java regex with no shell metacharacters. It matches
+      # both releaseRuntimeClasspath and runtimeClasspath across Android and JVM modules.
       - name: Snyk Open Source
         if: steps.token.outputs.present == 'true'
         run: |
-          # The setup action exposes the stable public `snyk` command. Its internal
-          # platform-specific filename is deliberately not part of that contract.
+          # The setup action exposes the stable public `snyk` command.
           snyk test --all-sub-projects --severity-threshold=medium \
-            --configuration-matching='^(releaseRuntimeClasspath|runtimeClasspath)$' \
+            --configuration-matching=runtimeClasspath \
             --sarif-file-output=snyk-oss.sarif \
             --org=themthem58
 
