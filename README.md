@@ -21,6 +21,7 @@ you want, that no third party can read.
   - [Getting started](#getting-started)
   - [Configuring Nextcloud](#configuring-nextcloud)
   - [Enabling PQ Vault as a passkey provider](#enabling-pq-vault-as-a-passkey-provider)
+  - [Importing a vault file](#importing-a-vault-file)
   - [Using a passkey on another device](#using-a-passkey-on-another-device)
   - [Biometric unlock](#biometric-unlock)
   - [Locking the vault](#locking-the-vault)
@@ -217,6 +218,20 @@ adb shell cmd package query-services --brief \
 
 After that, when a site offers to create a passkey, pick PQ Vault in the sheet Android
 shows. On the next sign-in the passkey is offered automatically.
+
+## Importing a vault file
+
+Choose **Import a .pqvault file** on the first screen, or in **Settings > Add a device**
+when a vault is already open. Select the file with Android's document picker and enter its
+passphrase.
+
+- On a fresh installation, the validated file becomes the local vault and the phone is
+  enrolled for background sync.
+- With an existing open vault, PQ Vault merges the live passkeys. It keeps the highest
+  signature counter for duplicates and does not import another vault's devices,
+  tombstones, signing identity, or cloud configuration.
+- A wrong passphrase, invalid signature, malformed file, or file larger than 32 MiB is
+  refused before local data is changed.
 
 ## Using a passkey on another device
 
@@ -434,10 +449,19 @@ Three possible causes: PQ Vault is not enabled as a provider, the browser is not
 the trusted list, or the site publishes an `assetlinks.json` that does not recognise the
 app making the request.
 
+**A website (including OpenAI) refuses to create a passkey.**
+Update to PQ Vault 2.1.0 or later, then tick the browser in **Settings > Trusted
+browsers**. Versions through 2.0.3 generated an Android allowlist with the wrong
+fingerprint field name, so every browser-origin request was rejected locally.
+
 **The FIDO QR scanner connects but the computer never sees the phone.**
 Check that Bluetooth is enabled and that PQ Vault has the nearby-device permission. The
 other device needs Bluetooth too because the encrypted advert proves physical proximity;
 the WebSocket tunnel alone is intentionally insufficient.
+
+If the app reports `sent ping but didn't receive pong within 20000ms`, update to
+PQ Vault 2.1.1 or later. Earlier builds enabled an OkHttp transport watchdog that is not
+compatible with an idle caBLE rendezvous tunnel.
 
 **The biometric option stays greyed out.**
 No fingerprint is enrolled in Android, or the sensor is not class 3. Enrol a fingerprint in

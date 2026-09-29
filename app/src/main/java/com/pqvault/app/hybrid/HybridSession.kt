@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.pqvault.app.diagnostics.DiagnosticLog
 import com.pqvault.core.hybrid.CableNoise
 import com.pqvault.core.hybrid.Ctap2Protocol
 import com.pqvault.core.hybrid.FidoQrCode
@@ -36,6 +37,7 @@ class HybridSession(
     enum class Status { Connecting, WaitingForComputer, SecuringConnection, WaitingForApproval }
 
     private val advertiser = HybridBleAdvertiser(context)
+    private val diagnostics = DiagnosticLog(context)
     private val handler = Handler(Looper.getMainLooper())
     private val finished = AtomicBoolean(false)
     private val lock = Any()
@@ -47,9 +49,11 @@ class HybridSession(
 
     fun start() {
         if (!qr.supportsWebSocket) {
+            diagnostics.record("caBLE rejected: QR has no WebSocket transport")
             fail("This FIDO code does not offer the WebSocket transport")
             return
         }
+        diagnostics.record("caBLE session started; WebSocket ping watchdog disabled")
         listener.onStatus(Status.Connecting)
         val tunnelId = HybridCrypto.derive(qr.secret, purpose = 2, length = 16).toHex()
         val request = Request.Builder()
@@ -62,15 +66,25 @@ class HybridSession(
     }
 
     override fun onOpen(webSocket: WebSocket, response: Response) {
+        diagnostics.record(
+            "caBLE tunnel open; HTTP ${response.code}; protocol=" +
+                (response.header("Sec-WebSocket-Protocol") ?: "missing"),
+        )
         Log.d(TAG, "tunnel open (${response.code}, protocol ${response.header("Sec-WebSocket-Protocol")})")
         val routingId = response.header(ROUTING_ID_HEADER)?.hexToBytes()
         if (routingId == null || routingId.size != 3) {
+            diagnostics.record("caBLE tunnel returned an invalid routing ID")
             fail("The tunnel did not return a valid routing ID")
             return
         }
-        advertiser.start(qr.secret, routingId) { code ->
-            fail("Bluetooth advertising failed ($code)")
-        }.fold(
+        advertiser.start(
+            secret = qr.secret,
+            routingId = routingId,
+            onStarted = { service ->
+                diagnostics.record("caBLE Bluetooth advert confirmed; service=$service")
+            },
+            onFailure = { code -> fail("Bluetooth advertising failed ($code)") },
+        ).fold(
             onSuccess = { plaintextAdvert ->
                 handshakePsk = HybridCrypto.derive(
                     secret = qr.secret,
@@ -79,12 +93,17 @@ class HybridSession(
                     length = 32,
                 )
                 listener.onStatus(Status.WaitingForComputer)
+                diagnostics.record("caBLE Bluetooth advert active; waiting for peer")
             },
-            onFailure = { fail(it.message ?: "Bluetooth advertising failed") },
+            onFailure = {
+                diagnostics.record("caBLE Bluetooth advertising failed", it)
+                fail(it.message ?: "Bluetooth advertising failed")
+            },
         )
     }
 
     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+        diagnostics.record("caBLE binary message received; bytes=${bytes.size}; secured=${noise != null}")
         Log.d(TAG, "tunnel message of ${bytes.size} bytes, secured=${noise != null}")
         runCatching { handleMessage(bytes.toByteArray()) }
             .onFailure {
@@ -94,15 +113,21 @@ class HybridSession(
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
+        diagnostics.record("caBLE rejected unexpected text message; bytes=${text.length}")
         fail("The tunnel sent an unexpected text message")
     }
 
     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+        diagnostics.record(
+            "caBLE tunnel failed; HTTP=${response?.code ?: "none"}; secured=${noise != null}",
+            t,
+        )
         Log.w(TAG, "tunnel failed (http ${response?.code}, secured=${noise != null})", t)
         if (responseSent) finish() else fail(t.message ?: "The hybrid tunnel failed")
     }
 
     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+        diagnostics.record("caBLE tunnel closed; code=$code; responseSent=$responseSent")
         Log.d(TAG, "tunnel closed ($code, $reason), responseSent=$responseSent")
         if (finished.compareAndSet(false, true)) {
             cleanup()
@@ -154,6 +179,7 @@ class HybridSession(
                 "could not send hybrid capabilities"
             }
             Log.d(TAG, "handshake complete, post-handshake message sent")
+            diagnostics.record("caBLE Noise handshake complete; capabilities sent")
             return
         }
 
@@ -168,6 +194,7 @@ class HybridSession(
 
     private fun handleCtap(packet: ByteArray) {
         Log.d(TAG, "ctap command 0x${"%02x".format(packet.firstOrNull() ?: 0)}")
+        diagnostics.record("caBLE CTAP command received; command=0x${"%02x".format(packet.firstOrNull() ?: 0)}")
         val request = try {
             Ctap2Protocol.parse(packet)
         } catch (_: Exception) {
@@ -219,6 +246,7 @@ class HybridSession(
 
     private fun fail(message: String) {
         if (finished.compareAndSet(false, true)) {
+            diagnostics.record("caBLE session aborted: $message")
             socket?.cancel()
             cleanup()
             listener.onError(message)
@@ -227,6 +255,7 @@ class HybridSession(
 
     private fun finish() {
         if (finished.compareAndSet(false, true)) {
+            diagnostics.record("caBLE session completed")
             socket?.close(1000, "complete")
             cleanup()
             listener.onFinished()
@@ -257,8 +286,16 @@ class HybridSession(
         private const val MESSAGE_TYPE_CTAP = 1
         private const val SESSION_TIMEOUT_MS = 180_000L
 
-        private fun defaultClient() = OkHttpClient.Builder()
-            .pingInterval(20, TimeUnit.SECONDS)
+        /**
+         * The caBLE rendezvous relay is intentionally passive while the desktop discovers
+         * the BLE advert. It does not guarantee replies to client-initiated WebSocket
+         * pings. Enabling OkHttp's ping watchdog therefore kills a healthy FIDO session
+         * after exactly one interval with "sent ping but didn't receive pong".
+         *
+         * The explicit three-minute session timer above is the protocol-level liveness
+         * bound; the WebSocket itself must remain idle without transport keepalives.
+         */
+        internal fun defaultClient() = OkHttpClient.Builder()
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
     }

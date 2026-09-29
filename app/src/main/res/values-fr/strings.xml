@@ -21,6 +21,10 @@
     <string name="confirm">Confirmer</string>
     <string name="create_vault">Créer le coffre</string>
     <string name="creating">Création...</string>
+    <string name="import_vault_action">Importer un fichier .pqvault</string>
+    <string name="import_vault_title">Importer un coffre</string>
+    <string name="import_vault_body">Saisissez la phrase secrète de %s. Si un coffre est déjà ouvert, ses passkeys sont fusionnées en sécurité ; elles ne sont jamais écrasées aveuglément.</string>
+    <string name="import_vault_confirm">Importer les passkeys</string>
 
     <!-- Unlock -->
     <string name="vault_locked">Coffre verrouillé</string>
@@ -86,6 +90,15 @@
     <string name="crypto_file_signature">Signature du fichier</string>
     <string name="crypto_passkey_signature">Signature des passkeys</string>
     <string name="crypto_note">Les passkeys sont signées en ES256 parce que l\'algorithme est imposé par chaque site, et aucun n\'accepte encore ML-DSA. Le reste est déjà post-quantique.</string>
+    <string name="section_diagnostics">Diagnostic</string>
+    <string name="diagnostics_title">Journal de diagnostic</string>
+    <string name="diagnostics_enable">Activer le journal de diagnostic</string>
+    <string name="diagnostics_explainer">Conserve jusqu\'à 256 Kio d\'événements techniques sur cet appareil. Aucun secret, passkey, identifiant d\'accès ou site visité n\'est enregistré.</string>
+    <string name="diagnostics_show">Afficher le journal</string>
+    <string name="diagnostics_export">Exporter le fichier journal</string>
+    <string name="diagnostics_clear">Effacer le journal</string>
+    <string name="diagnostics_exported">Journal de diagnostic exporté.</string>
+    <string name="diagnostics_export_failed">Impossible d\'exporter le journal de diagnostic.</string>
 
     <!-- Device pairing -->
     <string name="section_pairing">Ajouter un appareil</string>
@@ -157,6 +170,15 @@
     <string name="untrusted_signature">La signature du coffre est invalide.</string>
     <string name="untrusted_signer">Le coffre est signé par une clé inconnue.</string>
     <string name="untrusted_malformed">Coffre illisible : %s</string>
+    <plurals name="import_success">
+        <item quantity="one">%d passkey importée.</item>
+        <item quantity="many">%d passkeys importées.</item>
+        <item quantity="other">%d passkeys importées.</item>
+    </plurals>
+    <string name="import_read_failed">Impossible de lire le fichier sélectionné.</string>
+    <string name="import_read_failed_detail">Impossible de lire le fichier sélectionné : %s</string>
+    <string name="import_too_large">Le coffre sélectionné est trop volumineux.</string>
+    <string name="import_failed">Échec de l’import du coffre : %s</string>
 
     <!-- Notifications -->
     <string name="channel_sync_name">Synchronisation</string>

@@ -19,7 +19,7 @@ import java.util.UUID
 class HybridBleAdvertiser(context: Context) {
     private val application = context.applicationContext
     private val adapter = application.getSystemService(BluetoothManager::class.java)?.adapter
-    private var callback: AdvertiseCallback? = null
+    private var callbacks: List<AdvertiseCallback> = emptyList()
 
     val permissionGranted: Boolean
         get() = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
@@ -31,6 +31,7 @@ class HybridBleAdvertiser(context: Context) {
         secret: ByteArray,
         routingId: ByteArray,
         tunnelDomainId: Int = 0,
+        onStarted: (String) -> Unit = {},
         onFailure: (Int) -> Unit = {},
     ): Result<ByteArray> = runCatching {
         check(permissionGranted) { "Bluetooth advertising permission is missing" }
@@ -54,31 +55,49 @@ class HybridBleAdvertiser(context: Context) {
         val tag = HybridCrypto.hmacSha256(eidKey.copyOfRange(32, 64), ciphertext).copyOf(4)
         val serviceData = ciphertext + tag
 
-        val activeCallback = object : AdvertiseCallback() {
-            override fun onStartFailure(errorCode: Int) = onFailure(errorCode)
-        }
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .setConnectable(false)
             .setTimeout(0)
             .build()
-        val data = AdvertiseData.Builder()
-            .setIncludeDeviceName(false)
-            .setIncludeTxPowerLevel(false)
-            .addServiceUuid(SERVICE_UUID)
-            .addServiceData(SERVICE_UUID, serviceData)
-            .build()
-        advertiser.startAdvertising(settings, data, activeCallback)
-        callback = activeCallback
+        var failureCount = 0
+        val activeCallbacks = SERVICES.map { service ->
+            object : AdvertiseCallback() {
+                override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
+                    onStarted(service.label)
+                }
+
+                override fun onStartFailure(errorCode: Int) {
+                    synchronized(this@HybridBleAdvertiser) {
+                        failureCount++
+                        // FFF9 is the current FIDO UUID. FDE2 is retained by Chromium
+                        // for compatibility. One successful advert is sufficient.
+                        if (failureCount == SERVICES.size) onFailure(errorCode)
+                    }
+                }
+            }
+        }
+        callbacks = activeCallbacks
+        SERVICES.zip(activeCallbacks).forEach { (service, activeCallback) ->
+            val data = AdvertiseData.Builder()
+                .setIncludeDeviceName(false)
+                .setIncludeTxPowerLevel(false)
+                .addServiceUuid(service.uuid)
+                .addServiceData(service.uuid, serviceData)
+                .build()
+            advertiser.startAdvertising(settings, data, activeCallback)
+        }
         plaintext
     }
 
     @SuppressLint("MissingPermission")
     fun stop() {
-        val active = callback ?: return
-        if (permissionGranted) adapter?.bluetoothLeAdvertiser?.stopAdvertising(active)
-        callback = null
+        val active = callbacks
+        if (permissionGranted) {
+            active.forEach { adapter?.bluetoothLeAdvertiser?.stopAdvertising(it) }
+        }
+        callbacks = emptyList()
     }
 
     private fun SecureRandom.nextBytes(output: ByteArray, fromIndex: Int, toIndex: Int) {
@@ -88,8 +107,11 @@ class HybridBleAdvertiser(context: Context) {
     }
 
     companion object {
-        private val SERVICE_UUID = ParcelUuid(
-            UUID.fromString("0000fff9-0000-1000-8000-00805f9b34fb"),
+        private data class Service(val label: String, val uuid: ParcelUuid)
+
+        private val SERVICES = listOf(
+            Service("FIDO-FFF9", ParcelUuid(UUID.fromString("0000fff9-0000-1000-8000-00805f9b34fb"))),
+            Service("Chromium-FDE2", ParcelUuid(UUID.fromString("0000fde2-0000-1000-8000-00805f9b34fb"))),
         )
     }
 }

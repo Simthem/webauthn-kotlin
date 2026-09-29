@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,9 +20,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pqvault.app.R
 import com.pqvault.app.notify.SyncNotifications
+import com.pqvault.app.diagnostics.DiagnosticLog
 import com.pqvault.app.ui.screens.FidoScanScreen
 import com.pqvault.app.ui.screens.HybridRequestScreen
+import com.pqvault.app.ui.screens.ImportVaultScreen
 import com.pqvault.app.ui.screens.OnboardingScreen
 import com.pqvault.app.ui.screens.PairingCodeScreen
 import com.pqvault.app.ui.screens.PairingScanScreen
@@ -35,6 +39,27 @@ class MainActivity : AppCompatActivity() {
 
     private val model: VaultViewModel by viewModels()
     private var pendingFidoLink: String? = null
+    private val diagnostics by lazy { DiagnosticLog(this) }
+
+    private val vaultFilePicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(model::prepareVaultImport) }
+
+    private val diagnosticFilePicker = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.openOutputStream(uri, "wt")?.use {
+                    it.write(diagnostics.snapshot().toByteArray(Charsets.UTF_8))
+                } ?: error("No output stream")
+            }.onSuccess {
+                Toast.makeText(this, R.string.diagnostics_exported, Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this, R.string.diagnostics_export_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -98,6 +123,7 @@ class MainActivity : AppCompatActivity() {
                             onCreate = model::createVault,
                             onRestore = model::restoreVault,
                             onScanPairingCode = model::startPairingScan,
+                            onImportVault = { vaultFilePicker.launch(arrayOf("*/*")) },
                         )
 
                         VaultViewModel.Screen.Locked -> UnlockScreen(
@@ -131,6 +157,12 @@ class MainActivity : AppCompatActivity() {
                             onShowPairingCode = model::showPairingCode,
                             onScanPairingCode = model::startPairingScan,
                             onAutoLockChange = model::setAutoLockSeconds,
+                            onImportVault = { vaultFilePicker.launch(arrayOf("*/*")) },
+                            diagnosticLog = diagnostics::snapshot,
+                            diagnosticsAreEnabled = diagnostics::isEnabled,
+                            onDiagnosticsEnabledChange = diagnostics::setEnabled,
+                            onExportDiagnostics = { diagnosticFilePicker.launch("pqvault-diagnostics.log") },
+                            onClearDiagnostics = diagnostics::clear,
                         )
                     }
 
@@ -157,6 +189,11 @@ class MainActivity : AppCompatActivity() {
                             state = state,
                             onApprove = { model.approveHybrid(this@MainActivity, it) },
                             onReject = model::rejectHybrid,
+                            onClose = model::closeOverlay,
+                        )
+                        VaultViewModel.Overlay.ImportVault -> ImportVaultScreen(
+                            state = state,
+                            onImport = model::importVault,
                             onClose = model::closeOverlay,
                         )
                     }

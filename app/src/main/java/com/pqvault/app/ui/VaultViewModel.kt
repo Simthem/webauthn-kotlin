@@ -1,6 +1,8 @@
 package com.pqvault.app.ui
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -21,11 +23,14 @@ import com.pqvault.core.model.CoseAlgorithm
 import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.sync.VaultSyncEngine
 import com.pqvault.core.webauthn.SoftwareAuthenticator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -36,10 +41,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private val authenticator = SoftwareAuthenticator()
     private var hybridSession: HybridSession? = null
     private var pendingFidoCode: String? = null
+    private var pendingImportUri: Uri? = null
 
     enum class Screen { Loading, Onboarding, Locked, Vault, Settings }
 
-    enum class Overlay { None, PairingCode, PairingScan, FidoScan, Hybrid }
+    enum class Overlay { None, PairingCode, PairingScan, FidoScan, Hybrid, ImportVault }
 
     enum class HybridPhase { Connecting, WaitingForComputer, Securing, Approval, Complete, Error }
 
@@ -80,6 +86,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val pendingDeletion: PasskeyEntry? = null,
         /** True when this device is paired to a server but holds no vault yet. */
         val canRestore: Boolean = false,
+        val importFileName: String = "",
+        val importError: String? = null,
     )
 
     private fun string(id: Int, vararg args: Any): String =
@@ -181,6 +189,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun closeOverlay() {
         if (_state.value.overlay == Overlay.Hybrid) hybridSession?.close()
         if (_state.value.overlay == Overlay.FidoScan) pendingFidoCode = null
+        if (_state.value.overlay == Overlay.ImportVault) pendingImportUri = null
         hybridSession = null
         _state.update {
             it.copy(
@@ -189,7 +198,126 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 fidoScanError = null,
                 hybridPrompt = null,
                 hybridError = null,
+                importFileName = "",
+                importError = null,
             )
+        }
+    }
+
+    fun prepareVaultImport(uri: Uri) {
+        pendingImportUri = uri
+        val name = runCatching {
+            getApplication<Application>().contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull() ?: "vault.pqvault"
+        _state.update {
+            it.copy(
+                overlay = Overlay.ImportVault,
+                importFileName = name,
+                importError = null,
+            )
+        }
+    }
+
+    fun importVault(passphrase: String) {
+        val uri = pendingImportUri
+        if (uri == null) {
+            _state.update { it.copy(importError = string(R.string.import_read_failed)) }
+            return
+        }
+        if (passphrase.isEmpty()) {
+            _state.update { it.copy(importError = string(R.string.restore_needs_passphrase)) }
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, importError = null) }
+            val bytes = try {
+                withContext(Dispatchers.IO) { readImport(uri) }
+            } catch (failure: Exception) {
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        importError = string(
+                            R.string.import_read_failed_detail,
+                            failure.message ?: string(R.string.import_read_failed),
+                        ),
+                    )
+                }
+                return@launch
+            }
+            if (bytes == null) {
+                _state.update { it.copy(busy = false, importError = string(R.string.import_too_large)) }
+                return@launch
+            }
+
+            val chars = passphrase.toCharArray()
+            val outcome = try {
+                repository.importVault(bytes, chars)
+            } finally {
+                chars.fill('\u0000')
+                bytes.fill(0)
+            }
+            when (outcome) {
+                is VaultRepository.ImportOutcome.Success -> {
+                    pendingImportUri = null
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            overlay = Overlay.None,
+                            importFileName = "",
+                            importError = null,
+                            message = plural(
+                                R.plurals.import_success,
+                                outcome.importedEntries,
+                                outcome.importedEntries,
+                            ),
+                        )
+                    }
+                    refresh()
+                }
+                is VaultRepository.ImportOutcome.WrongPassphrase ->
+                    _state.update { it.copy(busy = false, importError = string(R.string.wrong_passphrase)) }
+                is VaultRepository.ImportOutcome.Locked ->
+                    _state.update { it.copy(busy = false, importError = string(R.string.unlock_first)) }
+                is VaultRepository.ImportOutcome.TooLarge ->
+                    _state.update { it.copy(busy = false, importError = string(R.string.import_too_large)) }
+                is VaultRepository.ImportOutcome.Untrusted ->
+                    _state.update { it.copy(busy = false, importError = outcome.reason) }
+                is VaultRepository.ImportOutcome.Failed ->
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            importError = string(R.string.import_failed, outcome.message),
+                        )
+                    }
+            }
+        }
+    }
+
+    /** Returns null instead of allocating beyond the import limit. */
+    private fun readImport(uri: Uri): ByteArray? {
+        val resolver = getApplication<Application>().contentResolver
+        val input = resolver.openInputStream(uri) ?: error(string(R.string.import_read_failed))
+        return input.use {
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0
+            while (true) {
+                val read = it.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > VaultRepository.MAX_IMPORT_BYTES) return null
+                output.write(buffer, 0, read)
+            }
+            output.toByteArray()
         }
     }
 

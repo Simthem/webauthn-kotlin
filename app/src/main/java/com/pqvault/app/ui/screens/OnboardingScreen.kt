@@ -46,6 +46,7 @@ fun OnboardingScreen(
     onCreate: (String, String) -> Unit,
     onRestore: (String) -> Unit,
     onScanPairingCode: () -> Unit,
+    onImportVault: () -> Unit,
 ) {
     var passphrase by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
@@ -136,6 +137,18 @@ fun OnboardingScreen(
             }
             Spacer(Modifier.height(20.dp))
         }
+
+        OutlinedButton(
+            onClick = onImportVault,
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Icon(PqIcons.Key, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.import_vault_action))
+        }
+        Spacer(Modifier.height(20.dp))
 
         PqCard {
             Text(stringResource(R.string.create_vault_title), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)

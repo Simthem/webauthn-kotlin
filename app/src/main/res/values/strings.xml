@@ -23,6 +23,10 @@
     <string name="confirm">Confirm</string>
     <string name="create_vault">Create vault</string>
     <string name="creating">Creating...</string>
+    <string name="import_vault_action">Import a .pqvault file</string>
+    <string name="import_vault_title">Import a vault</string>
+    <string name="import_vault_body">Enter the passphrase for %s. If a vault is already open, its passkeys are safely merged; they are never blindly overwritten.</string>
+    <string name="import_vault_confirm">Import passkeys</string>
 
     <!-- Unlock -->
     <string name="vault_locked">Vault locked</string>
@@ -86,6 +90,15 @@
     <string name="crypto_file_signature">File signature</string>
     <string name="crypto_passkey_signature">Passkey signature</string>
     <string name="crypto_note">Passkeys are signed with ES256 because each site dictates the algorithm, and none accept ML-DSA yet. Everything else is already post-quantum.</string>
+    <string name="section_diagnostics">Diagnostics</string>
+    <string name="diagnostics_title">Diagnostic log</string>
+    <string name="diagnostics_enable">Enable diagnostic log</string>
+    <string name="diagnostics_explainer">Keeps up to 256 KiB of technical events on this device. Secrets, passkeys, credential identifiers and visited sites are not recorded.</string>
+    <string name="diagnostics_show">View log</string>
+    <string name="diagnostics_export">Export log file</string>
+    <string name="diagnostics_clear">Clear log</string>
+    <string name="diagnostics_exported">Diagnostic log exported.</string>
+    <string name="diagnostics_export_failed">Could not export the diagnostic log.</string>
 
     <!-- Device pairing -->
     <string name="section_pairing">Add a device</string>
@@ -157,6 +170,14 @@
     <string name="untrusted_signature">The vault signature is invalid.</string>
     <string name="untrusted_signer">The vault is signed by an unknown key.</string>
     <string name="untrusted_malformed">Unreadable vault: %s</string>
+    <plurals name="import_success">
+        <item quantity="one">%d passkey imported.</item>
+        <item quantity="other">%d passkeys imported.</item>
+    </plurals>
+    <string name="import_read_failed">The selected file could not be read.</string>
+    <string name="import_read_failed_detail">The selected file could not be read: %s</string>
+    <string name="import_too_large">The selected vault is too large.</string>
+    <string name="import_failed">Vault import failed: %s</string>
 
     <!-- Notifications -->
     <string name="channel_sync_name">Sync</string>

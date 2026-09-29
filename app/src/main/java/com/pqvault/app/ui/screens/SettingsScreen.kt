@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -63,11 +65,41 @@ fun SettingsScreen(
     onShowPairingCode: () -> Unit,
     onScanPairingCode: () -> Unit,
     onAutoLockChange: (Int) -> Unit,
+    onImportVault: () -> Unit,
+    diagnosticLog: () -> String,
+    diagnosticsAreEnabled: () -> Boolean,
+    onDiagnosticsEnabledChange: (Boolean) -> Unit,
+    onExportDiagnostics: () -> Unit,
+    onClearDiagnostics: () -> Unit,
 ) {
     var baseUrl by remember(state.settings) { mutableStateOf(state.settings.webdavBaseUrl) }
     var username by remember(state.settings) { mutableStateOf(state.settings.webdavUsername) }
     var appPassword by remember(state.settings) { mutableStateOf(state.settings.webdavAppPassword) }
     var remotePath by remember(state.settings) { mutableStateOf(state.settings.remotePath) }
+    var shownDiagnostics by remember { mutableStateOf<String?>(null) }
+    var diagnosticsEnabled by remember { mutableStateOf(diagnosticsAreEnabled()) }
+
+    shownDiagnostics?.let { contents ->
+        AlertDialog(
+            onDismissRequest = { shownDiagnostics = null },
+            title = { Text(stringResource(R.string.diagnostics_title)) },
+            text = {
+                SelectionContainer {
+                    Text(
+                        contents,
+                        modifier = Modifier.height(360.dp).verticalScroll(rememberScrollState()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = onExportDiagnostics) { Text(stringResource(R.string.diagnostics_export)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { shownDiagnostics = null }) { Text(stringResource(R.string.close)) }
+            },
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(
@@ -179,6 +211,16 @@ fun SettingsScreen(
                     Icon(PqIcons.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(10.dp))
                     Text(stringResource(R.string.scan_pairing_code))
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onImportVault,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Icon(PqIcons.Key, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.import_vault_action))
                 }
             }
 
@@ -317,6 +359,58 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = PqColors.Dark3,
                 )
+            }
+
+            Spacer(Modifier.height(22.dp))
+            SectionLabel(stringResource(R.string.section_diagnostics))
+            Spacer(Modifier.height(8.dp))
+            PqCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.diagnostics_enable),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            stringResource(R.string.diagnostics_explainer),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = diagnosticsEnabled,
+                        onCheckedChange = { enabled ->
+                            diagnosticsEnabled = enabled
+                            onDiagnosticsEnabledChange(enabled)
+                            if (!enabled) shownDiagnostics = null
+                        },
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { shownDiagnostics = diagnosticLog() },
+                    enabled = diagnosticsEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                ) { Text(stringResource(R.string.diagnostics_show)) }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onExportDiagnostics,
+                    enabled = diagnosticsEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                ) { Text(stringResource(R.string.diagnostics_export)) }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        onClearDiagnostics()
+                        shownDiagnostics = null
+                    },
+                    enabled = diagnosticsEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                ) { Text(stringResource(R.string.diagnostics_clear)) }
             }
             Spacer(Modifier.height(32.dp))
         }

@@ -1,3 +1,52 @@
+## [2.1.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.1...v2.1.2) (2026-09-29)
+
+### Added
+
+- Add a switch for disabling the diagnostic journal from Settings. Disabling
+  logging deletes the existing local journal, and all diagnostic controls now
+  live in a dedicated section at the bottom of the screen.
+
+### Fixed
+
+- Restore QR-initiated OpenAI passkey registration by advertising the caBLE EID
+  on both the standard FIDO FFF9 service and Chromium's compatibility FDE2
+  service, matching the two discovery paths supported by Chromium.
+- Report a Bluetooth advert as active only after Android confirms it through
+  the advertisement-success callback, making caBLE failures diagnosable without
+  exposing vault, credential or relying-party data.
+
+## [2.1.1](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.0...v2.1.1) (2026-09-29)
+
+### Added
+
+- Add a bounded, privacy-filtered diagnostic journal to Settings, with in-app viewing,
+  file export and clearing. The caBLE flow records tunnel, Bluetooth, Noise handshake and
+  CTAP milestones without credential identifiers, relying-party data or vault secrets.
+
+### Fixed
+
+- Stop enabling OkHttp's 20-second WebSocket ping watchdog on caBLE hybrid tunnels.
+  The rendezvous relay can remain silent while the desktop discovers the BLE advert and
+  does not guarantee a WebSocket pong, so the watchdog disconnected otherwise healthy
+  OpenAI and other cross-device passkey requests before the protocol's own timeout.
+
+## [2.1.0](https://github.com/Simthem/webauthn-kotlin/compare/v2.0.3...v2.1.0) (2026-09-29)
+
+### Added
+
+- Import a user-selected `.pqvault` file directly from Android. A fresh installation
+  adopts the validated vault and enrolls the device; an open vault safely merges live
+  passkeys without importing foreign device access or deletion records.
+
+### Fixed
+
+- Generate Android privileged-browser allowlists with the required
+  `cert_fingerprint_sha256` field, migrate lists written by 2.0.3 at the trust boundary,
+  use the current signing certificate after key rotation, and support multi-signer
+  browser packages. This restores passkey creation from browsers, including OpenAI.
+- Return a valid `clientDataJSON` placeholder for privileged browser requests and include
+  the WebAuthn Level 3 parsed attestation fields expected by current browser integrations.
+
 ## [2.0.3](https://github.com/Simthem/webauthn-kotlin/compare/v2.0.2...v2.0.3) (2026-09-20)
 
 ### Fixed

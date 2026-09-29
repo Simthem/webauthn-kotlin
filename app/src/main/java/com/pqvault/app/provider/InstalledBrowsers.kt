@@ -22,11 +22,17 @@ object InstalledBrowsers {
     class Browser(
         val packageName: String,
         val label: String,
-        /** Colon-separated uppercase hex, the form the allowlist uses. */
-        val fingerprint: String,
+        /**
+         * Colon-separated uppercase SHA-256 values, in the exact form expected by
+         * CallingAppInfo.getOrigin(). Multi-signer packages must list every signer.
+         */
+        val fingerprints: List<String>,
         /** True when this is the user's currently selected default browser. */
         val isDefault: Boolean,
-    )
+    ) {
+        /** The current/primary signer, shown in the settings screen. */
+        val fingerprint: String get() = fingerprints.first()
+    }
 
     /**
      * Anything that can open an https URL. That deliberately over-collects: some entries
@@ -57,11 +63,11 @@ object InstalledBrowsers {
             .distinct()
             .filter { it != context.packageName }
             .mapNotNull { packageName ->
-                fingerprintOf(context, packageName)?.let { fingerprint ->
+                fingerprintsOf(context, packageName).takeIf { it.isNotEmpty() }?.let { fingerprints ->
                     Browser(
                         packageName = packageName,
                         label = labelOf(context, packageName) ?: packageName,
-                        fingerprint = fingerprint,
+                        fingerprints = fingerprints,
                         isDefault = packageName == defaultPackage,
                     )
                 }
@@ -76,7 +82,7 @@ object InstalledBrowsers {
         null
     }
 
-    private fun fingerprintOf(context: Context, packageName: String): String? = try {
+    private fun fingerprintsOf(context: Context, packageName: String): List<String> = try {
         val packageManager = context.packageManager
         val info = packageManager.getPackageInfo(
             packageName,
@@ -84,17 +90,19 @@ object InstalledBrowsers {
         )
         val signingInfo = info.signingInfo
         val signatures = when {
-            signingInfo == null -> null
-            signingInfo.hasMultipleSigners() -> signingInfo.apkContentsSigners
-            else -> signingInfo.signingCertificateHistory
+            signingInfo == null -> emptyList()
+            // Android requires every current signer for a multi-signer package.
+            signingInfo.hasMultipleSigners() -> signingInfo.apkContentsSigners?.toList().orEmpty()
+            // Rotation history is oldest -> newest. getOrigin() checks the newest signer.
+            else -> signingInfo.signingCertificateHistory?.lastOrNull()?.let(::listOf).orEmpty()
         }
-        signatures?.firstOrNull()?.let { signature ->
+        signatures.map { signature ->
             MessageDigest.getInstance("SHA-256")
                 .digest(signature.toByteArray())
                 .joinToString(":") { "%02X".format(it) }
         }
     } catch (e: PackageManager.NameNotFoundException) {
-        null
+        emptyList()
     }
 
     /**
@@ -105,13 +113,16 @@ object InstalledBrowsers {
     fun buildAllowlist(browsers: List<Browser>): String {
         if (browsers.isEmpty()) return ""
         val apps = browsers.joinToString(",\n") { browser ->
+            val signatures = browser.fingerprints.joinToString(",\n") { fingerprint ->
+                """{ "build": "release", "cert_fingerprint_sha256": "$fingerprint" }"""
+            }
             """
             {
               "type": "android",
               "info": {
                 "package_name": "${browser.packageName}",
                 "signatures": [
-                  { "build": "release", "cert_fingerprint": "${browser.fingerprint}" }
+                  $signatures
                 ]
               }
             }
@@ -119,6 +130,15 @@ object InstalledBrowsers {
         }
         return "{\n  \"apps\": [\n$apps\n  ]\n}"
     }
+
+    /**
+     * Version 2.0.3 wrote the wrong field name. Upgrade it at the trust boundary so an
+     * already-selected browser starts working immediately after the app is updated.
+     * The package and fingerprint values are left untouched, preserving the user's trust
+     * decision instead of silently trusting a newly signed browser.
+     */
+    fun upgradeAllowlist(allowlist: String): String =
+        allowlist.replace("\"cert_fingerprint\"", "\"cert_fingerprint_sha256\"")
 
     /** Package names present in a stored allowlist, so the UI can restore the ticks. */
     fun packagesIn(allowlist: String): Set<String> {

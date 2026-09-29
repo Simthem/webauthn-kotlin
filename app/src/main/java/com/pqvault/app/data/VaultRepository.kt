@@ -1,6 +1,7 @@
 package com.pqvault.app.data
 
 import android.content.Context
+import android.util.AtomicFile
 import com.pqvault.app.R
 import com.pqvault.app.notify.SyncNotifications
 import com.pqvault.app.sync.OkHttpWebDavClient
@@ -80,6 +81,16 @@ class VaultRepository private constructor(private val context: Context) {
         object AlreadyInitialised : RestoreOutcome()
         class Untrusted(val reason: String) : RestoreOutcome()
         class Failed(val message: String) : RestoreOutcome()
+    }
+
+    sealed class ImportOutcome {
+        /** A file became the local vault, or its live passkeys were merged into it. */
+        class Success(val importedEntries: Int, val replacedVault: Boolean) : ImportOutcome()
+        object WrongPassphrase : ImportOutcome()
+        object Locked : ImportOutcome()
+        object TooLarge : ImportOutcome()
+        class Untrusted(val reason: String) : ImportOutcome()
+        class Failed(val message: String) : ImportOutcome()
     }
 
     suspend fun create(passphrase: CharArray): Unit = mutex.withLock {
@@ -170,6 +181,133 @@ class VaultRepository private constructor(private val context: Context) {
         unlocked = success.vault
         onUnlocked()
         RestoreOutcome.Success
+    }
+
+    /**
+     * Imports a user-selected .pqvault file.
+     *
+     * With no local vault, the fully validated file becomes the local vault and this
+     * device is enrolled before it is persisted. With an existing unlocked vault, only
+     * live passkey entries are merged: the imported file cannot revoke local devices,
+     * change the local signing identity, or replay foreign tombstones.
+     */
+    suspend fun importVault(fileBytes: ByteArray, passphrase: CharArray): ImportOutcome =
+        mutex.withLock {
+            if (fileBytes.size > MAX_IMPORT_BYTES) return ImportOutcome.TooLarge
+
+            val opened = try {
+                Vault.open(
+                    fileBytes = fileBytes,
+                    passphrase = passphrase,
+                    pinnedSigningKey = null,
+                    lastSeenVersion = 0,
+                )
+            } catch (failure: RuntimeException) {
+                return ImportOutcome.Failed(failure.message ?: "vault import failed")
+            }
+            val imported = when (opened) {
+                is Vault.OpenResult.Success -> opened
+                is Vault.OpenResult.WrongPassphrase,
+                is Vault.OpenResult.NoMatchingRecipient,
+                -> return ImportOutcome.WrongPassphrase
+                is Vault.OpenResult.SignatureInvalid ->
+                    return ImportOutcome.Untrusted(context.getString(R.string.untrusted_signature))
+                is Vault.OpenResult.UnknownSigner ->
+                    return ImportOutcome.Untrusted(context.getString(R.string.untrusted_signer))
+                is Vault.OpenResult.Rollback ->
+                    return ImportOutcome.Untrusted(
+                        context.getString(
+                            R.string.untrusted_rollback,
+                            opened.fileVersion,
+                            opened.lastSeenVersion,
+                        ),
+                    )
+                is Vault.OpenResult.Malformed ->
+                    return ImportOutcome.Untrusted(
+                        context.getString(R.string.untrusted_malformed, opened.reason),
+                    )
+            }
+
+            if (!vaultFile.exists()) {
+                val importedVault = imported.vault
+                try {
+                    val identity = runCatching { deviceIdentity.loadOrCreate() }
+                        .getOrElse { deviceIdentity.recreate() }
+                    importedVault.enrollDevice(
+                        identity.deviceId,
+                        android.os.Build.MODEL ?: "this device",
+                        identity.keyPair.publicKey,
+                    )
+                    val bytes = importedVault.serialize()
+                    writeVaultAtomically(bytes)
+                    settings.update {
+                        it.copy(
+                            pinnedSigningKey = Base64Url.encode(imported.signingPublicKey),
+                            pinnedSigningKeyDigest = "",
+                            localVersion = importedVault.vaultVersion,
+                            lastSeenVersion = 0,
+                            lastSyncEtag = "",
+                        )
+                    }
+                    unlocked = importedVault
+                    onUnlocked()
+                    return ImportOutcome.Success(importedVault.entries.size, replacedVault = true)
+                } catch (failure: Exception) {
+                    importedVault.close()
+                    return ImportOutcome.Failed(failure.message ?: "vault import failed")
+                }
+            }
+
+            val local = unlocked
+            if (local == null) {
+                imported.vault.close()
+                return ImportOutcome.Locked
+            }
+
+            var changed = 0
+            try {
+                for (candidate in imported.vault.entries) {
+                    val deletion = local.tombstones
+                        .filter { it.credentialId == candidate.credentialId }
+                        .maxByOrNull { it.deletedAt }
+                    if (deletion != null && deletion.deletedAt >= candidate.updatedAt) continue
+
+                    val current = local.find(candidate.credentialId)
+                    val merged = when {
+                        current == null -> candidate
+                        candidate.updatedAt > current.updatedAt ->
+                            candidate.copy(signCount = maxOf(candidate.signCount, current.signCount))
+                        else -> current.copy(signCount = maxOf(candidate.signCount, current.signCount))
+                    }
+                    if (current != merged) {
+                        local.addOrReplace(merged)
+                        changed += 1
+                    }
+                }
+
+                if (changed > 0) {
+                    writeVaultAtomically(local.serialize())
+                    rememberVersion(local)
+                    touch()
+                }
+                return ImportOutcome.Success(changed, replacedVault = false)
+            } catch (failure: Exception) {
+                return ImportOutcome.Failed(failure.message ?: "vault import failed")
+            } finally {
+                imported.vault.close()
+            }
+        }
+
+    private fun writeVaultAtomically(bytes: ByteArray) {
+        val atomic = AtomicFile(vaultFile)
+        val output = atomic.startWrite()
+        try {
+            output.write(bytes)
+            atomic.finishWrite(output)
+        } catch (failure: Throwable) {
+            atomic.failWrite(output)
+            throw failure
+        }
     }
 
     suspend fun unlock(passphrase: CharArray): UnlockOutcome = mutex.withLock {
@@ -581,6 +719,7 @@ class VaultRepository private constructor(private val context: Context) {
          * the deadline the user chose, long enough to be invisible on a battery graph.
          */
         private const val AUTO_LOCK_POLL_MS = 15_000L
+        const val MAX_IMPORT_BYTES = 32 * 1024 * 1024
 
         // The instance holds the *application* context, taken in get() below, so it
         // lives exactly as long as the process does and leaks nothing. Lint cannot see

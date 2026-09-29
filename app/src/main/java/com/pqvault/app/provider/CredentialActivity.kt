@@ -207,6 +207,10 @@ class CredentialActivity : AppCompatActivity() {
             // A privileged caller (a browser) supplies the hash it already built, and we
             // must sign exactly that rather than reconstructing our own clientDataJSON.
             val providedHash = option.clientDataHash
+            if (providedHash != null && providedHash.size != CLIENT_DATA_HASH_SIZE) {
+                failGet(getString(R.string.provider_bad_request))
+                return@launch
+            }
             val clientDataJson = clientDataJson("webauthn.get", challenge, origin)
             val clientDataHash = providedHash ?: AuthenticatorData.sha256(clientDataJson.toByteArray())
 
@@ -222,9 +226,7 @@ class CredentialActivity : AppCompatActivity() {
                 put(
                     "response",
                     JSONObject().apply {
-                        if (providedHash == null) {
-                            put("clientDataJSON", Base64Url.encode(clientDataJson.toByteArray()))
-                        }
+                        put("clientDataJSON", responseClientDataJson(providedHash, clientDataJson))
                         put("authenticatorData", Base64Url.encode(assertion.authenticatorData))
                         put("signature", Base64Url.encode(assertion.signature))
                         put("userHandle", entry.userHandle)
@@ -284,6 +286,10 @@ class CredentialActivity : AppCompatActivity() {
             }
             val origin = trusted.origin
             val providedHash = createRequest.clientDataHash
+            if (providedHash != null && providedHash.size != CLIENT_DATA_HASH_SIZE) {
+                failCreate(getString(R.string.provider_bad_request))
+                return@launch
+            }
             val clientDataJson = clientDataJson("webauthn.create", challenge, origin)
             val clientDataHash = providedHash ?: AuthenticatorData.sha256(clientDataJson.toByteArray())
 
@@ -307,11 +313,12 @@ class CredentialActivity : AppCompatActivity() {
                 put(
                     "response",
                     JSONObject().apply {
-                        if (providedHash == null) {
-                            put("clientDataJSON", Base64Url.encode(clientDataJson.toByteArray()))
-                        }
+                        put("clientDataJSON", responseClientDataJson(providedHash, clientDataJson))
                         put("attestationObject", Base64Url.encode(registration.attestationObject))
                         put("transports", JSONArray(listOf("internal", "hybrid")))
+                        put("authenticatorData", Base64Url.encode(registration.authenticatorData))
+                        put("publicKeyAlgorithm", algorithm.id)
+                        put("publicKey", registration.entry.publicKeySpki)
                     },
                 )
             }.toString()
@@ -355,7 +362,19 @@ class CredentialActivity : AppCompatActivity() {
         }.toString()
 
     private fun privilegedAllowlist(): String? =
-        SecureSettings(this).load().privilegedBrowserAllowlist.takeIf { it.isNotBlank() }
+        SecureSettings(this).load().privilegedBrowserAllowlist
+            .takeIf { it.isNotBlank() }
+            ?.let(InstalledBrowsers::upgradeAllowlist)
+
+    /**
+     * Privileged browsers own clientDataJSON and give providers only its hash. Android's
+     * provider contract still requires a syntactically valid placeholder in the JSON
+     * response; omitting the member makes recent browser versions reject the response.
+     */
+    private fun responseClientDataJson(providedHash: ByteArray?, clientDataJson: String): String =
+        Base64Url.encode(
+            if (providedHash == null) clientDataJson.toByteArray() else EMPTY_CLIENT_DATA_JSON,
+        )
 
     /**
      * Digital Asset Links check for native callers.
@@ -410,5 +429,7 @@ class CredentialActivity : AppCompatActivity() {
         const val ACTION_GET = "com.pqvault.app.GET"
         const val ACTION_CREATE = "com.pqvault.app.CREATE"
         const val EXTRA_CREDENTIAL_ID = "credential_id"
+        private const val CLIENT_DATA_HASH_SIZE = 32
+        private val EMPTY_CLIENT_DATA_JSON = "{}".toByteArray()
     }
 }

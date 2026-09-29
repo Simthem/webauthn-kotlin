@@ -16,8 +16,8 @@ android {
         // /e/OS builds. The system-wide credential provider is gated at runtime instead.
         minSdk 30
         targetSdk 36
-        versionCode 3
-        versionName "2.0.3"
+        versionCode 6
+        versionName "2.1.2"
     }
 
     /*
