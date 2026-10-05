@@ -520,12 +520,12 @@ org.gradle.java.home=/usr/lib/jvm/jdk-17-oracle-x64
 
 ### Running the tests
 
-91 unit tests, none of which need a device or an emulator.
+105 unit tests, none of which need a device or an emulator.
 
 ```bash
-./gradlew testAll                 # both modules, 91 tests
-./gradlew :vault:test             # vault core only, 83 tests
-./gradlew :app:testDebugUnitTest  # app module only, 8 tests
+./gradlew testAll                 # both modules, 105 tests
+./gradlew :vault:test             # vault core only, 92 tests
+./gradlew :app:testDebugUnitTest  # app module only, 13 tests
 ```
 
 Each task prints every test name and a count when it finishes:
@@ -533,7 +533,7 @@ Each task prints every test name and a count when it finishes:
 ```
 PairingPayloadTest > a pairing code fits in a QR code() PASSED
 
-8 tests: 8 passed, 0 failed, 0 skipped
+105 tests: 105 passed, 0 failed, 0 skipped
 ```
 
 **If you see no test output at all, nothing ran.** Gradle skips a task whose inputs have
