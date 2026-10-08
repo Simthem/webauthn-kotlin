@@ -77,12 +77,29 @@ class CredentialActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The "Unlock PQ Vault" action of a locked vault. The system does not query the
+     * provider again when we return: the passkeys for the request have to come back in
+     * the result, or the picker reports that there is no sign-in information.
+     */
     private fun handleUnlock() {
         lifecycleScope.launch {
-            unlockVault()
-            // The system re-queries the provider once we return, so there is nothing to
-            // hand back here beyond having opened the vault.
-            setResult(RESULT_OK)
+            val request = PendingIntentHandler.retrieveBeginGetCredentialRequest(intent)
+            if (request == null || !unlockVault()) {
+                setResult(RESULT_CANCELED)
+                finish()
+                return@launch
+            }
+            val result = Intent()
+            PendingIntentHandler.setBeginGetCredentialResponse(
+                result,
+                CredentialEntries.response(
+                    this@CredentialActivity,
+                    request,
+                    VaultRepository.get(this@CredentialActivity),
+                ),
+            )
+            setResult(RESULT_OK, result)
             finish()
         }
     }

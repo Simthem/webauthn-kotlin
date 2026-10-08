@@ -1,3 +1,28 @@
+## [2.1.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.3...v2.1.4) (2026-10-08)
+
+### Fixed
+
+- Separate account names from the QR passkey sign-in action so site-provided labels
+  cannot look like a request to add a new key. Show the site domain, an explicit
+  sign-in button and confirmation that sign-in uses an existing passkey.
+- Request fresh local biometric or screen-lock verification for QR sign-in and
+  registration whenever available, including sites that do not require it.
+- Explain real QR registration requests and warn when a passkey for the same
+  account already exists in the vault. Keep approval controls scrollable.
+- Offer the site's passkeys right after "Unlock PQ Vault" in the system sheet. The
+  unlock action now returns them itself, since Android does not query the provider
+  again, instead of leaving the sheet on "No sign-in info".
+- Reload the passkey list when the app comes back to the foreground, so a passkey
+  created from a browser or another app shows without locking the vault first.
+
+## [2.1.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.2...v2.1.3) (2026-10-05)
+
+### Security
+
+- Replace BouncyCastle 1.85 with 1.86 to address security vulnerabilities and
+    improve cryptographic support : patch `SNYK-JAVA-ORGBOUNCYCASTLE-20419435`,
+    `SNYK-JAVA-ORGBOUNCYCASTLE-20419451`
+
 ## [2.1.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.1...v2.1.2) (2026-09-29)
 
 ### Added

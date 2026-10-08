@@ -131,6 +131,11 @@
     <string name="hybrid_sign_question">Sign in to %s?</string>
     <string name="hybrid_account">Account: %s</string>
     <string name="hybrid_create_action">Create passkey</string>
+    <string name="hybrid_sign_action">Sign in with this passkey</string>
+    <string name="hybrid_unnamed_account">Unnamed account</string>
+    <string name="hybrid_sign_explanation">Choose an existing passkey to sign in. No new passkey will be created.</string>
+    <string name="hybrid_create_explanation">The site is requesting a new passkey. Existing passkeys in your vault will be kept.</string>
+    <string name="hybrid_create_existing_account">Your vault already has a passkey for this account. Continuing will add another passkey to your vault.</string>
     <string name="reject">Reject</string>
     <string name="hybrid_complete">The request was approved. You can return to the other device.</string>
     <string name="hybrid_failed">The cross-device passkey request failed.</string>

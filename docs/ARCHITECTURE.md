@@ -195,6 +195,12 @@ Strings live in resources, English by default with a French translation in `valu
 - **The credential flow must offer a passphrase fallback.** Relying on biometrics alone
   makes every passkey unusable from the system picker on a phone with no enrolled
   fingerprint, or after a new enrolment invalidates the key.
+- **An unlock action answers the request itself.** When the vault is locked the
+  provider returns an "Unlock PQ Vault" authentication action. Android launches it and
+  does **not** query the provider again afterwards: the activity has to put the
+  credential entries in its result with `setBeginGetCredentialResponse`, or the sheet
+  says there is no sign-in information. `CredentialEntries` builds that list for both
+  the service and the activity.
 - **BE and BS flags** (`FLAG_BACKUP_ELIGIBLE`, `FLAG_BACKUP_STATE`) are always set: they
   tell the site this is a synced passkey. The upstream library could not honestly set them.
 - **`setInvalidatedByBiometricEnrollment(true)`**: enrolling a new fingerprint destroys the

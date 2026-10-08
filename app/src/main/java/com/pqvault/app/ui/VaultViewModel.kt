@@ -10,6 +10,7 @@ import com.pqvault.app.R
 import com.pqvault.app.data.SecureSettings
 import com.pqvault.app.data.VaultRepository
 import com.pqvault.app.hybrid.HybridSession
+import com.pqvault.app.hybrid.HybridApprovalPolicy
 import com.pqvault.app.notify.SyncNotifications
 import com.pqvault.app.pairing.PairingPayload
 import com.pqvault.app.provider.InstalledBrowsers
@@ -52,6 +53,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     data class HybridPrompt(
         val request: Ctap2Protocol.Request,
         val candidates: List<PasskeyEntry> = emptyList(),
+        val hasExistingAccount: Boolean = false,
     )
 
     data class UiState(
@@ -118,9 +120,17 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     /** Defers the idle lock. Wired to every touch the activity sees. */
     fun touch() = repository.touch()
 
-    /** Locks immediately if the app came back after the idle deadline had passed. */
+    /**
+     * Locks immediately if the app came back after the idle deadline had passed, and
+     * reloads the list otherwise: the provider and the sync worker change the vault while
+     * this screen is in the background, and a passkey just created from a browser or an
+     * app must show on return.
+     */
     fun onResumed() {
-        viewModelScope.launch { repository.lockIfIdle() }
+        viewModelScope.launch {
+            repository.lockIfIdle()
+            refresh()
+        }
     }
 
     private fun refresh() {
@@ -367,6 +377,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun approveHybrid(activity: FragmentActivity, credentialId: String? = null) {
+        if (_state.value.busy) return
         val prompt = _state.value.hybridPrompt ?: return
         val request = prompt.request
         viewModelScope.launch {
@@ -376,7 +387,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 is Ctap2Protocol.Request.GetAssertion -> request.rpId
                 else -> return@launch
             }
-            val verified = if (requiresUserVerification(request) && hybridVerification.isAvailable) {
+            val verified = if (HybridApprovalPolicy.shouldVerify(request, hybridVerification.isAvailable)) {
                 when (val result = hybridVerification.verify(activity, rpId)) {
                     HybridUserVerification.Result.Verified -> true
                     HybridUserVerification.Result.Cancelled -> {
@@ -399,7 +410,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            if (requiresUserVerification(request) && !verified) {
+            if (HybridApprovalPolicy.requiresVerification(request) && !verified) {
                 hybridSession?.respond(Ctap2Protocol.error(Ctap2Protocol.STATUS_UNSUPPORTED_OPTION))
                 _state.update {
                     it.copy(
@@ -576,7 +587,13 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update {
                     it.copy(
                         hybridPhase = HybridPhase.Approval,
-                        hybridPrompt = HybridPrompt(request),
+                        hybridPrompt = HybridPrompt(
+                            request,
+                            hasExistingAccount = HybridApprovalPolicy.hasExistingAccount(
+                                request,
+                                repository.entriesFor(request.rpId),
+                            ),
+                        ),
                     )
                 }
             }
@@ -620,12 +637,6 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 hybridPrompt = null,
             )
         }
-    }
-
-    private fun requiresUserVerification(request: Ctap2Protocol.Request): Boolean = when (request) {
-        is Ctap2Protocol.Request.MakeCredential -> request.userVerification
-        is Ctap2Protocol.Request.GetAssertion -> request.userVerification
-        else -> false
     }
 
     private fun resumePendingFidoCode() {

@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -138,7 +140,7 @@ fun HybridRequestScreen(
         modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)),
         contentAlignment = Alignment.Center,
     ) {
-        Column(modifier = Modifier.padding(24.dp)) {
+        Column(modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
             PqCard {
                 Text(
                     stringResource(R.string.hybrid_title),
@@ -221,17 +223,36 @@ private fun HybridApproval(
     when (val request = prompt.request) {
         is Ctap2Protocol.Request.MakeCredential -> {
             Text(
-                stringResource(R.string.hybrid_create_question, request.rpName ?: request.rpId),
+                stringResource(R.string.hybrid_create_question, request.rpId),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                stringResource(R.string.hybrid_account, request.userName.ifBlank { request.rpId }),
+                stringResource(
+                    R.string.hybrid_account,
+                    request.userName.ifBlank {
+                        request.userDisplayName?.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.hybrid_unnamed_account)
+                    },
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                stringResource(R.string.hybrid_create_explanation),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (prompt.hasExistingAccount) {
+                Spacer(Modifier.height(10.dp))
+                StatusBanner(
+                    stringResource(R.string.hybrid_create_existing_account),
+                    BannerTone.Warning,
+                )
+            }
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = { onApprove(null) },
@@ -252,13 +273,43 @@ private fun HybridApproval(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(10.dp))
+            Text(
+                stringResource(R.string.hybrid_sign_explanation),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
             prompt.candidates.forEach { entry ->
+                Text(
+                    stringResource(
+                        R.string.hybrid_account,
+                        entry.userName.ifBlank {
+                            entry.userDisplayName?.takeIf { it.isNotBlank() }
+                                ?: stringResource(R.string.hybrid_unnamed_account)
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                entry.userDisplayName?.takeIf {
+                    entry.userName.isNotBlank() && it.isNotBlank() && it != entry.userName
+                }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
                 Button(
                     onClick = { onApprove(entry.credentialId) },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(entry.userDisplayName ?: entry.userName)
+                    if (busy) CircularProgressIndicator(strokeWidth = 2.dp) else {
+                        Text(stringResource(R.string.hybrid_sign_action))
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
             }

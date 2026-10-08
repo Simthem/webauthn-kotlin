@@ -131,6 +131,11 @@
     <string name="hybrid_sign_question">Se connecter à %s ?</string>
     <string name="hybrid_account">Compte : %s</string>
     <string name="hybrid_create_action">Créer la passkey</string>
+    <string name="hybrid_sign_action">Se connecter avec cette passkey</string>
+    <string name="hybrid_unnamed_account">Compte sans nom</string>
+    <string name="hybrid_sign_explanation">Choisissez une passkey existante pour vous connecter. Aucune nouvelle passkey ne sera créée.</string>
+    <string name="hybrid_create_explanation">Le site demande une nouvelle passkey. Les passkeys existantes de votre coffre seront conservées.</string>
+    <string name="hybrid_create_existing_account">Votre coffre contient déjà une passkey pour ce compte. Continuer en ajoutera une autre dans votre coffre.</string>
     <string name="reject">Refuser</string>
     <string name="hybrid_complete">La demande a été approuvée. Vous pouvez revenir sur l\'autre appareil.</string>
     <string name="hybrid_failed">La demande de passkey entre appareils a échoué.</string>

@@ -1,7 +1,5 @@
 package com.pqvault.app.provider
 
-import android.app.PendingIntent
-import android.content.Intent
 import android.os.Build
 import android.os.CancellationSignal
 import android.os.OutcomeReceiver
@@ -15,14 +13,11 @@ import androidx.credentials.provider.BeginCreateCredentialResponse
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialResponse
-import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
 import androidx.credentials.provider.CreateEntry
 import androidx.credentials.provider.CredentialProviderService
 import androidx.credentials.provider.ProviderClearCredentialStateRequest
-import androidx.credentials.provider.PublicKeyCredentialEntry
 import com.pqvault.app.R
 import com.pqvault.app.data.VaultRepository
-import org.json.JSONObject
 
 /**
  * Makes the vault a system-wide passkey provider.
@@ -54,14 +49,19 @@ class PqVaultCredentialProviderService : CredentialProviderService() {
 
             // A locked vault must not reveal which sites the user has accounts on, so we
             // answer with an unlock action rather than a credential list. The system shows
-            // it as "Unlock PQ Vault" and re-queries once the user has authenticated.
+            // it as "Unlock PQ Vault", and the activity behind it returns the list once the
+            // vault is open: the system does not query the provider again.
             if (!repository.isUnlocked) {
                 callback.onResult(
                     BeginGetCredentialResponse(
                         authenticationActions = listOf(
                             AuthenticationAction(
                                 title = getString(R.string.unlock_vault_title),
-                                pendingIntent = pendingIntent(CredentialActivity.ACTION_UNLOCK, UNLOCK_REQUEST_CODE),
+                                pendingIntent = CredentialEntries.pendingIntent(
+                                    this,
+                                    CredentialActivity.ACTION_UNLOCK,
+                                    UNLOCK_REQUEST_CODE,
+                                ),
                             ),
                         ),
                     ),
@@ -69,41 +69,10 @@ class PqVaultCredentialProviderService : CredentialProviderService() {
                 return
             }
 
-            val entries = request.beginGetCredentialOptions
-                .filterIsInstance<BeginGetPublicKeyCredentialOption>()
-                .flatMap { option -> entriesFor(option, repository) }
-
-            callback.onResult(BeginGetCredentialResponse(credentialEntries = entries))
+            callback.onResult(CredentialEntries.response(this, request, repository))
         } catch (e: Exception) {
             callback.onError(GetCredentialUnknownException(e.message))
         }
-    }
-
-    private fun entriesFor(
-        option: BeginGetPublicKeyCredentialOption,
-        repository: VaultRepository,
-    ): List<PublicKeyCredentialEntry> {
-        val rpId = rpIdOf(option.requestJson) ?: return emptyList()
-        val allowed = allowedCredentialIds(option.requestJson)
-
-        return repository.entriesFor(rpId)
-            // An empty allowList means a discoverable-credential request: offer everything
-            // we hold for the site. A populated one restricts us to what the site named.
-            .filter { allowed.isEmpty() || it.credentialId in allowed }
-            .mapIndexed { index, entry ->
-                PublicKeyCredentialEntry.Builder(
-                    context = this,
-                    username = entry.userName,
-                    pendingIntent = pendingIntent(
-                        action = CredentialActivity.ACTION_GET,
-                        requestCode = GET_REQUEST_CODE_BASE + index,
-                        credentialId = entry.credentialId,
-                    ),
-                    beginGetPublicKeyCredentialOption = option,
-                )
-                    .setDisplayName(entry.userDisplayName ?: entry.rpName ?: entry.rpId)
-                    .build()
-            }
     }
 
     override fun onBeginCreateCredentialRequest(
@@ -123,7 +92,11 @@ class PqVaultCredentialProviderService : CredentialProviderService() {
                 createEntries = listOf(
                     CreateEntry.Builder(
                         accountName = "PQ Vault",
-                        pendingIntent = pendingIntent(CredentialActivity.ACTION_CREATE, CREATE_REQUEST_CODE),
+                        pendingIntent = CredentialEntries.pendingIntent(
+                            this,
+                            CredentialActivity.ACTION_CREATE,
+                            CREATE_REQUEST_CODE,
+                        ),
                     )
                         .setDescription(
                             getString(
@@ -149,44 +122,8 @@ class PqVaultCredentialProviderService : CredentialProviderService() {
         callback.onResult(null)
     }
 
-    private fun pendingIntent(action: String, requestCode: Int, credentialId: String? = null): PendingIntent {
-        val intent = Intent(this, CredentialActivity::class.java)
-            .setAction(action)
-            .setPackage(packageName)
-            .apply { credentialId?.let { putExtra(CredentialActivity.EXTRA_CREDENTIAL_ID, it) } }
-        return PendingIntent.getActivity(
-            this,
-            requestCode,
-            intent,
-            // MUTABLE is required: the system injects the actual credential request into
-            // this intent before launching it.
-            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-    }
-
-    private fun rpIdOf(requestJson: String): String? = try {
-        val json = JSONObject(requestJson)
-        // Registration nests it under "rp"; authentication carries it at the top level.
-        json.optJSONObject("rp")?.optString("id")?.takeIf { it.isNotEmpty() }
-            ?: json.optString("rpId").takeIf { it.isNotEmpty() }
-    } catch (e: org.json.JSONException) {
-        null
-    }
-
-    private fun allowedCredentialIds(requestJson: String): Set<String> = try {
-        val array = JSONObject(requestJson).optJSONArray("allowCredentials")
-        buildSet {
-            for (i in 0 until (array?.length() ?: 0)) {
-                array?.optJSONObject(i)?.optString("id")?.takeIf { it.isNotEmpty() }?.let(::add)
-            }
-        }
-    } catch (e: org.json.JSONException) {
-        emptySet()
-    }
-
     private companion object {
         const val UNLOCK_REQUEST_CODE = 1
         const val CREATE_REQUEST_CODE = 2
-        const val GET_REQUEST_CODE_BASE = 100
     }
 }
