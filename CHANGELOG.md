@@ -1,4 +1,4 @@
-## [2.1.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.3...v2.1.4) (2026-10-08)
+## [2.1.4](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.3...v2.1.4) (2026-10-05)
 
 ### Fixed
 
@@ -15,7 +15,7 @@
 - Reload the passkey list when the app comes back to the foreground, so a passkey
   created from a browser or another app shows without locking the vault first.
 
-## [2.1.2](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.2...v2.1.3) (2026-10-05)
+## [2.1.3](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.2...v2.1.3) (2026-10-05)
 
 ### Security
 
