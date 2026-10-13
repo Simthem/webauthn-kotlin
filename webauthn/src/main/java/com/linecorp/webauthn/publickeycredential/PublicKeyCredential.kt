@@ -206,14 +206,12 @@ class PublicKeyCredential(
      * @return List of all registered PublicKeyCredentialSource.
      * @throws WebAuthnException.CredSrcStorageException If there is an error loading credentials from the database.
      */
-    suspend fun getAllAccounts(): List<com.linecorp.webauthn.model.PublicKeyCredentialSource> {
-        return try {
-            withContext(databaseDispatcher) {
-                db.loadAll()
-            }
-        } catch (e: Exception) {
-            throw WebAuthnException.CredSrcStorageException("Failed to load credentials", e)
+    suspend fun getAllAccounts(): List<com.linecorp.webauthn.model.PublicKeyCredentialSource> = try {
+        withContext(databaseDispatcher) {
+            db.loadAll()
         }
+    } catch (e: Exception) {
+        throw WebAuthnException.CredSrcStorageException("Failed to load credentials", e)
     }
 
     /**

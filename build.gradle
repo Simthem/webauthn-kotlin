@@ -75,9 +75,10 @@ subprojects {
                 details.useVersion(rootProject.kotlinVersion)
                 details.because("kotlin-stdlib before 2.1.0 leaks temp file contents to other local users (CVE-2020-29582)")
             }
-            if (details.requested.group == "ch.qos.logback") {
+            if (details.requested.group == "ch.qos.logback" &&
+                details.requested.name in ["logback-classic", "logback-core"]) {
                 details.useVersion(rootProject.logbackVersion)
-                details.because("Logback 1.5.37 fully fixes CVE-2026-13006 and supersedes the vulnerable 1.3 line")
+                details.because("Logback 1.6.5 fixes CVE-2026-104721 and keeps classic/core aligned")
             }
         }
     }

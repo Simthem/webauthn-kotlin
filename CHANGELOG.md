@@ -1,3 +1,16 @@
+## [2.1.5](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.4...v2.1.5) (2026-10-13)
+
+### Fixed
+
+- Express `getAllAccounts` as an expression body to satisfy ktlint without
+  changing database dispatch or storage-error handling.
+
+### Security
+
+- Upgrade Logback classic and core from 1.6.3 to 1.6.5 for CVE-2026-104721,
+  including ktlint's worker classpath. Keep both modules aligned and scope the
+  resolution rule to those artifacts rather than every package in the group.
+
 ## [2.1.4](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.3...v2.1.4) (2026-10-05)
 
 ### Fixed
