@@ -1,0 +1,16 @@
+# Baseline profile for the app's own code.
+#
+# Compose and the other AndroidX libraries ship profiles of their own, which AGP merges in,
+# but nothing covered PQ Vault itself: the passkey list, the view model and the vault core
+# ran interpreted until the JIT caught up, which is what made the first scroll after an
+# install or an update stutter. The app is small enough to compile ahead of time as a
+# whole, so the rules are wildcards rather than a recorded trace that would need a
+# Macrobenchmark module and a device to keep up to date.
+#
+# profileinstaller (already on the classpath through Compose) hands this profile to ART
+# for APKs installed outside the Play Store, and ART compiles it during the next idle
+# maintenance window. Debuggable builds are never compiled ahead of time and ignore it.
+HSPLcom/pqvault/app/**;->**(**)**
+HSPLcom/pqvault/core/**;->**(**)**
+Lcom/pqvault/app/**;
+Lcom/pqvault/core/**;

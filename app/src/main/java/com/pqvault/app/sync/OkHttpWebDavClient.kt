@@ -1,5 +1,6 @@
 package com.pqvault.app.sync
 
+import com.pqvault.core.format.VaultFile
 import com.pqvault.core.sync.WebDavClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -7,6 +8,7 @@ import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -71,10 +73,7 @@ class OkHttpWebDavClient(
                         // bytes to merge against, so we re-fetch unconditionally rather
                         // than inventing an "unchanged" state it cannot act on.
                         response.code == 304 -> refetch(path)
-                        response.isSuccessful -> WebDavClient.GetResult.Found(
-                            bytes = response.body?.bytes() ?: ByteArray(0),
-                            etag = normaliseEtag(response.header("ETag")),
-                        )
+                        response.isSuccessful -> found(response)
                         else -> WebDavClient.GetResult.Error("HTTP ${response.code} ${response.message}")
                     }
                 }
@@ -92,10 +91,7 @@ class OkHttpWebDavClient(
         return try {
             http.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    WebDavClient.GetResult.Found(
-                        bytes = response.body?.bytes() ?: ByteArray(0),
-                        etag = normaliseEtag(response.header("ETag")),
-                    )
+                    found(response)
                 } else {
                     WebDavClient.GetResult.Error("HTTP ${response.code} ${response.message}")
                 }
@@ -153,6 +149,26 @@ class OkHttpWebDavClient(
         } catch (e: IOException) {
             false
         }
+    }
+
+    /**
+     * Reads a downloaded vault, refusing one larger than [VaultFile.MAX_FILE_BYTES].
+     *
+     * The server is not trusted with the content, which is encrypted and signed, but all
+     * of that is checked after the download. Read without a limit, an endless body from a
+     * hostile or broken server would exhaust the heap first.
+     */
+    private fun found(response: Response): WebDavClient.GetResult {
+        val source = response.body?.source()
+            ?: return WebDavClient.GetResult.Found(ByteArray(0), normaliseEtag(response.header("ETag")))
+        source.request(VaultFile.MAX_FILE_BYTES + 1L)
+        if (source.buffer.size > VaultFile.MAX_FILE_BYTES) {
+            return WebDavClient.GetResult.Error("the vault on the server is larger than any vault can be")
+        }
+        return WebDavClient.GetResult.Found(
+            bytes = source.buffer.readByteArray(),
+            etag = normaliseEtag(response.header("ETag")),
+        )
     }
 
     /**

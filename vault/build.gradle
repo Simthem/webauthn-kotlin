@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id "org.jetbrains.kotlin.jvm"
     id "org.jetbrains.kotlin.plugin.serialization" version "$kotlinVersion"
@@ -6,15 +8,17 @@ plugins {
     id "com.android.lint"
 }
 
-java {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+// Compiled and tested on JDK 21, shipped as Java 11 bytecode: this module ends up inside
+// the APK, and D8 has no use for anything newer.
+kotlin {
+    jvmToolchain(jvmTargetHost as int)
+    compilerOptions {
+        jvmTarget = JvmTarget.fromTarget(jvmTargetIntermediate)
+    }
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
-    }
+tasks.withType(JavaCompile).configureEach {
+    options.release = jvmTargetIntermediate as int
 }
 
 dependencies {
@@ -44,10 +48,10 @@ tasks.named("test") {
     // difference between "it passed" and "I have no idea whether it passed".
     testLogging {
         events "passed", "skipped", "failed"
-        exceptionFormat "full"
-        showExceptions true
-        showCauses true
-        showStackTraces true
+        exceptionFormat = "full"
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
     }
 
     afterSuite { desc, result ->

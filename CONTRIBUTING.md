@@ -21,8 +21,13 @@ Run the same checks the pipeline runs:
 ./gradlew verify
 ```
 
-That covers the unit tests of both modules and Android Lint. A green run locally is a good
+That covers the unit tests of every module and Android Lint. A green run locally is a good
 predictor of a green pipeline, and it is faster than waiting for one.
+
+The build needs JDK 21 installed, which Gradle finds by itself whatever `JAVA_HOME` points
+to. The README lists the [requirements](./README.md#requirements). A build that prints a
+deprecation warning is not finished: Gradle 9 warns about what Gradle 10 will refuse, so
+`./gradlew verify --warning-mode all` should end without one.
 
 The `vault` module has no Android dependency, which is deliberate: the cryptography, the
 file format and the merge are testable on a development machine with no emulator. New
@@ -33,7 +38,8 @@ logic in those areas is expected to come with tests that run there.
 Do not open a public issue for a vulnerability affecting the vault format, the key
 derivation or the credential provider. Report it privately through
 [GitHub security advisories](https://github.com/Simthem/webauthn-kotlin/security/advisories/new)
-so a fix can ship before the details are public.
+so a fix can ship before the details are public. [SECURITY.md](./SECURITY.md) has the
+details and what is in scope.
 
 ## Scope
 

@@ -18,6 +18,7 @@ import com.pqvault.app.security.BiometricVaultLock
 import com.pqvault.app.security.HybridUserVerification
 import com.pqvault.app.sync.VaultSyncWorker
 import com.pqvault.core.format.Base64Url
+import com.pqvault.core.format.VaultFile
 import com.pqvault.core.hybrid.Ctap2Protocol
 import com.pqvault.core.hybrid.FidoQrCode
 import com.pqvault.core.model.CoseAlgorithm
@@ -25,6 +26,7 @@ import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.sync.VaultSyncEngine
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -133,28 +135,68 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var environmentRefresh: Job? = null
+
+    /**
+     * Brings the state back in line with the repository, in two steps.
+     *
+     * The screen and the passkey list are taken here, on the main thread, where the
+     * vault's lists are changed and are therefore safe to read. Everything else costs
+     * real time on a phone (three settings reads and an identity read, each a Keystore
+     * decryption, plus a signing-certificate digest for every installed browser) and used
+     * to run here too, freezing the list for tens of milliseconds on every return to the
+     * app, just as the user started to scroll. It now runs on the IO dispatcher, and a
+     * newer refresh cancels an older one still running so stale values never land last.
+     */
     private fun refresh() {
+        val initialised = repository.isInitialised
+        val enrolledDevices = repository.enrolledDeviceIds()
         _state.update {
             it.copy(
                 screen = when {
-                    !repository.isInitialised -> Screen.Onboarding
+                    !initialised -> Screen.Onboarding
                     !repository.isUnlocked -> Screen.Locked
                     else -> Screen.Vault
                 },
                 entries = repository.allEntries().sortedBy { entry -> entry.rpId },
-                settings = settingsStore.load(),
-                biometricsAvailable = biometrics.isAvailable(),
-                biometricsEnrolled = biometrics.isEnrolled(),
-                deviceEnrolled = repository.isDeviceEnrolled(),
-                canRestore = !repository.isInitialised &&
-                    settingsStore.load().webdavBaseUrl.isNotBlank(),
-                browsers = InstalledBrowsers.detect(getApplication()),
-                trustedBrowsers = InstalledBrowsers.packagesIn(
-                    settingsStore.load().privilegedBrowserAllowlist,
-                ),
             )
         }
+
+        environmentRefresh?.cancel()
+        environmentRefresh = viewModelScope.launch {
+            val environment = withContext(Dispatchers.IO) {
+                val settings = settingsStore.load()
+                Environment(
+                    settings = settings,
+                    biometricsAvailable = biometrics.isAvailable(),
+                    biometricsEnrolled = biometrics.isEnrolled(),
+                    deviceEnrolled = repository.thisDeviceId()?.let { id -> id in enrolledDevices } ?: false,
+                    browsers = InstalledBrowsers.detect(getApplication()),
+                    trustedBrowsers = InstalledBrowsers.packagesIn(settings.privilegedBrowserAllowlist),
+                )
+            }
+            _state.update {
+                it.copy(
+                    settings = environment.settings,
+                    biometricsAvailable = environment.biometricsAvailable,
+                    biometricsEnrolled = environment.biometricsEnrolled,
+                    deviceEnrolled = environment.deviceEnrolled,
+                    canRestore = !initialised && environment.settings.webdavBaseUrl.isNotBlank(),
+                    browsers = environment.browsers,
+                    trustedBrowsers = environment.trustedBrowsers,
+                )
+            }
+        }
     }
+
+    private class Environment(
+        val settings: SecureSettings.Settings,
+        val biometricsAvailable: Boolean,
+        val biometricsEnrolled: Boolean,
+        val deviceEnrolled: Boolean,
+        val browsers: List<InstalledBrowsers.Browser>,
+        val trustedBrowsers: Set<String>,
+    )
 
     /**
      * Trusting a browser stores its package *and* the fingerprint read from the installed
@@ -324,7 +366,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 val read = it.read(buffer)
                 if (read < 0) break
                 total += read
-                if (total > VaultRepository.MAX_IMPORT_BYTES) return null
+                if (total > VaultFile.MAX_FILE_BYTES) return null
                 output.write(buffer, 0, read)
             }
             output.toByteArray()
@@ -334,6 +376,13 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun onPairingCodeScanned(text: String) {
         when (val result = PairingPayload.decode(text)) {
             is PairingPayload.ParseResult.Valid -> {
+                // A pairing code is only a QR code, and anyone can print one. The address
+                // it carries gets the same check as one typed in settings, or a forged code
+                // could point sync at a plain-HTTP server and the app password with it.
+                validateWebdavUrl(result.payload.webdavBaseUrl.trim())?.let { problem ->
+                    _state.update { it.copy(pairingError = problem) }
+                    return
+                }
                 val paired = settingsStore.update { PairingPayload.applyTo(it, result.payload) }
                 VaultSyncWorker.schedule(getApplication())
                 _state.update {
@@ -469,12 +518,21 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }.onFailure { failure ->
-                hybridSession?.respond(Ctap2Protocol.error(Ctap2Protocol.STATUS_OPERATION_DENIED))
+                val full = failure is VaultFile.VaultTooLargeException
+                hybridSession?.respond(
+                    Ctap2Protocol.error(
+                        if (full) Ctap2Protocol.STATUS_KEY_STORE_FULL else Ctap2Protocol.STATUS_OPERATION_DENIED,
+                    ),
+                )
                 _state.update {
                     it.copy(
                         busy = false,
                         hybridPhase = HybridPhase.Error,
-                        hybridError = failure.message ?: string(R.string.hybrid_failed),
+                        hybridError = if (full) {
+                            string(R.string.vault_full)
+                        } else {
+                            failure.message ?: string(R.string.hybrid_failed)
+                        },
                         hybridPrompt = null,
                     )
                 }
@@ -917,48 +975,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             val chars = passphrase.toCharArray()
             val outcome = repository.sync(chars)
             chars.fill('\u0000')
-            val update: UiState.() -> UiState = when (outcome) {
-                is VaultSyncEngine.Outcome.Created -> {
-                    { copy(busy = false, message = string(R.string.sync_uploaded, outcome.version)) }
-                }
-                is VaultSyncEngine.Outcome.Pushed -> {
-                    { copy(busy = false, message = string(R.string.sync_pushed, outcome.version)) }
-                }
-                is VaultSyncEngine.Outcome.Merged -> {
-                    {
-                        copy(
-                            busy = false,
-                            message = if (outcome.conflicts.isEmpty()) {
-                                string(R.string.sync_merged, outcome.version)
-                            } else {
-                                plural(
-                                    R.plurals.sync_merged_conflicts,
-                                    outcome.conflicts.size,
-                                    outcome.version,
-                                    outcome.conflicts.size,
-                                )
-                            },
-                        )
-                    }
-                }
-                is VaultSyncEngine.Outcome.RemoteUntrusted -> {
-                    {
-                        copy(
-                            busy = false,
-                            securityAlert = describe(outcome.cause),
-                            securityAlertRecoverable = outcome.cause is
-                                VaultSyncEngine.Outcome.Untrusted.Rollback,
-                        )
-                    }
-                }
-                is VaultSyncEngine.Outcome.RemoteUnreadable -> {
-                    { copy(busy = false, error = string(R.string.sync_remote_unreadable)) }
-                }
-                is VaultSyncEngine.Outcome.Failed -> {
-                    { copy(busy = false, error = describe(outcome.reason)) }
-                }
-            }
-            _state.update(update)
+            _state.update { it.withSyncOutcome(outcome) }
             refresh()
         }
     }
@@ -971,43 +988,43 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null) }
             val outcome = repository.syncUnattended()
-            _state.update { current ->
-                when (outcome) {
-                    is VaultSyncEngine.Outcome.Created ->
-                        current.copy(busy = false, message = string(R.string.sync_uploaded, outcome.version))
-                    is VaultSyncEngine.Outcome.Pushed ->
-                        current.copy(busy = false, message = string(R.string.sync_pushed, outcome.version))
-                    is VaultSyncEngine.Outcome.Merged ->
-                        current.copy(
-                            busy = false,
-                            message = if (outcome.conflicts.isEmpty()) {
-                            string(R.string.sync_merged, outcome.version)
-                        } else {
-                            plural(
-                                R.plurals.sync_merged_conflicts,
-                                outcome.conflicts.size,
-                                outcome.version,
-                                outcome.conflicts.size,
-                            )
-                        },
-                        )
-                    is VaultSyncEngine.Outcome.RemoteUntrusted ->
-                        current.copy(
-                            busy = false,
-                            securityAlert = describe(outcome.cause),
-                            securityAlertRecoverable = outcome.cause is
-                                VaultSyncEngine.Outcome.Untrusted.Rollback,
-                        )
-                    is VaultSyncEngine.Outcome.RemoteUnreadable ->
-                        current.copy(busy = false, error = string(R.string.sync_remote_unreadable))
-                    is VaultSyncEngine.Outcome.Failed ->
-                        current.copy(busy = false, error = describe(outcome.reason))
-                }
-            }
+            _state.update { it.withSyncOutcome(outcome) }
             // The repository adopts the vault the sync produced, so there is nothing
             // stale left behind and no reason to make the user unlock again.
             refresh()
         }
+    }
+
+    /**
+     * What the user is told after a sync. The vault version number stays out of it: it
+     * grows by one on every save on every device, and a four- or five-digit counter
+     * tells nobody anything. The rollback warnings still quote it, because there the
+     * two numbers are the evidence.
+     */
+    private fun UiState.withSyncOutcome(outcome: VaultSyncEngine.Outcome): UiState = when (outcome) {
+        is VaultSyncEngine.Outcome.Created ->
+            copy(busy = false, message = string(R.string.sync_uploaded))
+        is VaultSyncEngine.Outcome.Pushed ->
+            copy(busy = false, message = string(R.string.sync_pushed))
+        is VaultSyncEngine.Outcome.Merged ->
+            copy(
+                busy = false,
+                message = if (outcome.conflicts.isEmpty()) {
+                    string(R.string.sync_merged)
+                } else {
+                    plural(R.plurals.sync_merged_conflicts, outcome.conflicts.size, outcome.conflicts.size)
+                },
+            )
+        is VaultSyncEngine.Outcome.RemoteUntrusted ->
+            copy(
+                busy = false,
+                securityAlert = describe(outcome.cause),
+                securityAlertRecoverable = outcome.cause is VaultSyncEngine.Outcome.Untrusted.Rollback,
+            )
+        is VaultSyncEngine.Outcome.RemoteUnreadable ->
+            copy(busy = false, error = string(R.string.sync_remote_unreadable))
+        is VaultSyncEngine.Outcome.Failed ->
+            copy(busy = false, error = describe(outcome.reason))
     }
 
     fun enrollThisDevice() {

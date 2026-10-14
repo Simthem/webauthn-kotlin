@@ -14,16 +14,20 @@
  * under the License.
  */
 
+/*
+ * Every version below comes from gradle.properties. A version written here and another
+ * one declared there is how the two drifted apart before: the properties advertised
+ * android-junit5 1.11.0.0 while 1.9.3.0 was the one actually on the classpath.
+ */
 buildscript {
-    ext.kotlin_version = "$project.kotlinVersion"
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.12.1'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10"
-        classpath "de.mannodermaus.gradle.plugins:android-junit5:1.9.3.0"
+        classpath "com.android.tools.build:gradle:$androidGradlePluginVersion"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
+        classpath "de.mannodermaus.gradle.plugins:android-junit5:$junit5AndroidPluginVersion"
     }
 }
 
@@ -98,6 +102,6 @@ tasks.register("verify") {
 
 tasks.register("testAll") {
     group = "verification"
-    description = "Runs the unit tests of both modules"
+    description = "Runs the unit tests of every module"
     dependsOn ":vault:test", ":app:testDebugUnitTest", ":webauthn:testDebugUnitTest"
 }

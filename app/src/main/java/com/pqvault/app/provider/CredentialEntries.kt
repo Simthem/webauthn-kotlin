@@ -59,7 +59,9 @@ internal object CredentialEntries {
         option: BeginGetPublicKeyCredentialOption,
         repository: VaultRepository,
     ): List<PublicKeyCredentialEntry> {
-        val rpId = rpIdOf(option.requestJson) ?: return emptyList()
+        val rpId = ProviderRequestPolicy.parse(option.requestJson)
+            ?.let(ProviderRequestPolicy::rpIdOf)
+            ?: return emptyList()
         val allowed = allowedCredentialIds(option.requestJson)
 
         return repository.entriesFor(rpId)
@@ -81,15 +83,6 @@ internal object CredentialEntries {
                     .setDisplayName(entry.userDisplayName ?: entry.rpName ?: entry.rpId)
                     .build()
             }
-    }
-
-    private fun rpIdOf(requestJson: String): String? = try {
-        val json = JSONObject(requestJson)
-        // Registration nests it under "rp"; authentication carries it at the top level.
-        json.optJSONObject("rp")?.optString("id")?.takeIf { it.isNotEmpty() }
-            ?: json.optString("rpId").takeIf { it.isNotEmpty() }
-    } catch (e: org.json.JSONException) {
-        null
     }
 
     private fun allowedCredentialIds(requestJson: String): Set<String> = try {

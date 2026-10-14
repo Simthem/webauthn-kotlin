@@ -14,21 +14,22 @@
  * under the License.
  */
 
-import org.jetbrains.kotlin.gradle.tasks.KaptGenerateStubs
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     id "com.android.library"
-    id "kotlin-android"
     id "org.jetbrains.kotlin.plugin.serialization" version "$kotlinVersion"
-    id "com.google.devtools.ksp" version "2.2.10-2.0.2"
+    id "com.google.devtools.ksp" version "$kspVersion"
     id "org.jetbrains.kotlin.android"
     id "de.mannodermaus.android-junit5"
-    id "org.jlleitschuh.gradle.ktlint" version "13.1.0"
+    id "org.jlleitschuh.gradle.ktlint" version "$ktlintGradleVersion"
 }
 
 android {
     namespace = "com.linecorp.webauthn"
-    compileSdkVersion 35
+    compileSdk = 35
 
     defaultConfig {
         // 30 rather than 28. Below API 30 this module fell back to
@@ -37,30 +38,23 @@ android {
         // authentication by a CryptoObject. The app that consumes this module is
         // minSdk 30 and the library is no longer published, so that path was reachable
         // by nothing and is now gone.
-        minSdkVersion 30
-        targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        minSdk = 30
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0"
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArgument("runnerBuilder", "de.mannodermaus.junit5.AndroidJUnit5Builder")
     }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    kotlinOptions {
-        jvmTarget = "11"
-        freeCompilerArgs += [
-            "-language-version", "2.0",
-            "-api-version", "2.0"
-        ]
+        sourceCompatibility = JavaVersion.toVersion(jvmTargetIntermediate)
+        targetCompatibility = JavaVersion.toVersion(jvmTargetIntermediate)
     }
     testOptions {
         unitTests.all {
@@ -83,14 +77,39 @@ android {
         abortOnError = true
     }
 
-    packagingOptions {
+    packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1,LICENSE.md,LICENSE-notice.md,NOTICE.md}"
         }
     }
 }
 
-tasks.withType(KaptGenerateStubs).configureEach{kotlinOptions{jvmTarget = "11"}}
+kotlin {
+    jvmToolchain(jvmTargetHost as int)
+    compilerOptions {
+        jvmTarget = JvmTarget.fromTarget(jvmTargetIntermediate)
+    }
+}
+
+// The upstream sources are compiled as Kotlin 2.0, and so is the KSP pass over them.
+// KSP1 (ksp.useKSP2=false) appends its own -language-version 1.9 when the task runs, so
+// on those tasks the only way to keep 2.0 is to append it after, as this module always
+// did. The compiler then notes the flag was given twice, a warning that goes away with
+// KSP2 and not before. The ordinary compile tasks take the setting through the DSL.
+tasks.withType(KotlinCompile).configureEach { task ->
+    if (task.name.startsWith("ksp")) {
+        compilerOptions.freeCompilerArgs.addAll("-language-version", "2.0", "-api-version", "2.0")
+    } else {
+        compilerOptions {
+            languageVersion = KotlinVersion.KOTLIN_2_0
+            apiVersion = KotlinVersion.KOTLIN_2_0
+        }
+    }
+}
+
+ktlint {
+    version = ktlintVersion
+}
 
 dependencies {
     implementation "androidx.core:core-ktx:$project.coreVersion"
@@ -124,7 +143,7 @@ dependencies {
     testImplementation("com.google.truth:truth:$project.truthVersion")
 
     // cbor
-    implementation group: "co.nstant.in", name: "cbor", version: "0.9"
+    implementation "co.nstant.in:cbor:$project.cborVersion"
 
     // coroutine
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$project.kotlinxCoroutinesVersion"

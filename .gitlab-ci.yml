@@ -55,6 +55,13 @@ variables:
   ANDROID_HOME: "$CI_PROJECT_DIR/.android-sdk"
   # Command line tools 13.0, the revision that ships sdkmanager 26.
   ANDROID_CMDLINE_TOOLS: "13114758"
+  # Scanner binaries are pinned and checked against these digests before they run. The
+  # Snyk job holds SNYK_TOKEN, so a "latest" download executed blind would hand that
+  # token to whoever controls the download. Bump the version and the digest together.
+  SNYK_CLI_VERSION: "1.1308.0"
+  SNYK_CLI_SHA256: "a916d3ec9e6c27d56cf67664459885512758a1ae94418ba430fcb92e86c32ae1"
+  OSV_SCANNER_VERSION: "2.7.0"
+  OSV_SCANNER_SHA256: "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
   SECURE_LOG_LEVEL: "info"
 
 # A project/group variable has higher precedence than a value declared above. Re-export
@@ -67,8 +74,10 @@ variables:
   export NO_PROXY="localhost,127.0.0.1,::1,10.142.50.50"
   export no_proxy="$NO_PROXY"
 
+# JDK 21, as gradle/gradle-daemon-jvm.properties and the jvmTargetHost toolchain ask for.
+# On a JDK 17 image Gradle would find no matching toolchain and stop.
 default:
-  image: eclipse-temurin:17-jdk
+  image: eclipse-temurin:21-jdk
   before_script:
     - *export-proxy
   cache:
@@ -103,7 +112,7 @@ default:
 # repository, CI runners included, so it is checked before anything else executes it.
 wrapper:checksum:
   stage: verify
-  image: eclipse-temurin:17-jdk
+  image: eclipse-temurin:21-jdk
   before_script:
     - *export-proxy
     - apt-get update -qq && apt-get install -qq -y --no-install-recommends curl
@@ -177,7 +186,7 @@ test:lint:
 gemnasium-maven-dependency_scanning:
   <<: *android-sdk
   variables:
-    DS_JAVA_VERSION: "17"
+    DS_JAVA_VERSION: "21"
 
 snyk:
   stage: security
@@ -188,7 +197,8 @@ snyk:
         echo "SNYK_TOKEN is not set, skipping"
         exit 0
       fi
-    - curl -sSLo /usr/local/bin/snyk https://static.snyk.io/cli/latest/snyk-linux
+    - curl -sSLo /usr/local/bin/snyk "https://static.snyk.io/cli/v${SNYK_CLI_VERSION}/snyk-linux"
+    - echo "${SNYK_CLI_SHA256}  /usr/local/bin/snyk" | sha256sum -c -
     - chmod +x /usr/local/bin/snyk
     - snyk auth "$SNYK_TOKEN"
     # See the note in .github/workflows/ci.yml: without --configuration-matching,
@@ -218,7 +228,8 @@ osv-scanner:
   <<: *android-sdk
   script:
     - ./gradlew --no-daemon --write-verification-metadata sha256 :app:dependencies :vault:dependencies || true
-    - curl -sSLo /usr/local/bin/osv-scanner https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
+    - curl -sSLo /usr/local/bin/osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+    - echo "${OSV_SCANNER_SHA256}  /usr/local/bin/osv-scanner" | sha256sum -c -
     - chmod +x /usr/local/bin/osv-scanner
     - osv-scanner scan source --lockfile=gradle/verification-metadata.xml --format=json --output=osv.json || true
     - osv-scanner scan source --lockfile=gradle/verification-metadata.xml || true

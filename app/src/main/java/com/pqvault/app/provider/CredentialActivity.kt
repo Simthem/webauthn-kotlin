@@ -19,8 +19,11 @@ import com.pqvault.app.R
 import com.pqvault.app.data.SecureSettings
 import com.pqvault.app.data.VaultRepository
 import com.pqvault.app.security.BiometricVaultLock
+import com.pqvault.app.security.HybridUserVerification
 import com.pqvault.core.format.Base64Url
+import com.pqvault.core.format.VaultFile
 import com.pqvault.core.model.CoseAlgorithm
+import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.webauthn.AuthenticatorData
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 import com.pqvault.app.ui.screens.CredentialUnlockSheet
@@ -206,7 +209,11 @@ class CredentialActivity : AppCompatActivity() {
                 return@launch
             }
 
-            val requestJson = JSONObject(option.requestJson)
+            val requestJson = ProviderRequestPolicy.parse(option.requestJson)
+            if (requestJson == null || !ProviderRequestPolicy.targets(requestJson, entry.rpId)) {
+                failGet(getString(R.string.provider_bad_request))
+                return@launch
+            }
             val challenge = requestJson.optString("challenge")
 
             val caller = CallerVerifier(privilegedAllowlist()).verify(request.callingAppInfo)
@@ -224,15 +231,33 @@ class CredentialActivity : AppCompatActivity() {
             // A privileged caller (a browser) supplies the hash it already built, and we
             // must sign exactly that rather than reconstructing our own clientDataJSON.
             val providedHash = option.clientDataHash
-            if (providedHash != null && providedHash.size != CLIENT_DATA_HASH_SIZE) {
+            if (!isUsableClientData(providedHash, challenge)) {
                 failGet(getString(R.string.provider_bad_request))
                 return@launch
             }
             val clientDataJson = clientDataJson("webauthn.get", challenge, origin)
             val clientDataHash = providedHash ?: AuthenticatorData.sha256(clientDataJson.toByteArray())
 
-            val assertion = authenticator.getAssertion(entry, clientDataHash)
-            repository.upsert(assertion.updatedEntry)
+            val userVerified = when (
+                val verification = verifyUser(
+                    entry.rpId,
+                    ProviderRequestPolicy.requiresVerification(requestJson, creating = false),
+                )
+            ) {
+                is Verification.Done -> verification.userVerified
+                is Verification.Refused -> {
+                    failGet(verification.reason)
+                    return@launch
+                }
+            }
+
+            val assertion = authenticator.getAssertion(entry, clientDataHash, userVerified = userVerified)
+            // The raised counter has to be on disk before the signature leaves: a site
+            // that later sees the same counter again takes the passkey for a clone.
+            if (!save(assertion.updatedEntry)) {
+                failGet(getString(R.string.vault_full))
+                return@launch
+            }
 
             val responseJson = JSONObject().apply {
                 put("id", entry.credentialId)
@@ -274,11 +299,12 @@ class CredentialActivity : AppCompatActivity() {
                 return@launch
             }
 
-            val json = JSONObject(createRequest.requestJson)
-            val rp: JSONObject? = json.optJSONObject("rp")
-            val user: JSONObject? = json.optJSONObject("user")
+            val json = ProviderRequestPolicy.parse(createRequest.requestJson)
+            val rp: JSONObject? = json?.optJSONObject("rp")
+            val user: JSONObject? = json?.optJSONObject("user")
             val rpId = rp?.optString("id").orEmpty()
-            if (rp == null || user == null || rpId.isEmpty()) {
+            val userHandle = user?.let(ProviderRequestPolicy::userHandle)
+            if (json == null || rp == null || user == null || rpId.isEmpty() || userHandle == null) {
                 failCreate(getString(R.string.provider_bad_request))
                 return@launch
             }
@@ -303,23 +329,40 @@ class CredentialActivity : AppCompatActivity() {
             }
             val origin = trusted.origin
             val providedHash = createRequest.clientDataHash
-            if (providedHash != null && providedHash.size != CLIENT_DATA_HASH_SIZE) {
+            if (!isUsableClientData(providedHash, challenge)) {
                 failCreate(getString(R.string.provider_bad_request))
                 return@launch
             }
             val clientDataJson = clientDataJson("webauthn.create", challenge, origin)
             val clientDataHash = providedHash ?: AuthenticatorData.sha256(clientDataJson.toByteArray())
 
+            val userVerified = when (
+                val verification = verifyUser(
+                    rpId,
+                    ProviderRequestPolicy.requiresVerification(json, creating = true),
+                )
+            ) {
+                is Verification.Done -> verification.userVerified
+                is Verification.Refused -> {
+                    failCreate(verification.reason)
+                    return@launch
+                }
+            }
+
             val registration = authenticator.makeCredential(
                 rpId = rpId,
                 rpName = rp.optString("name").takeIf { it.isNotEmpty() },
-                userHandle = Base64Url.decode(user.optString("id")),
+                userHandle = userHandle,
                 userName = user.optString("name"),
                 userDisplayName = user.optString("displayName").takeIf { it.isNotEmpty() },
                 clientDataHash = clientDataHash,
                 algorithm = algorithm,
+                userVerified = userVerified,
             )
-            VaultRepository.get(this@CredentialActivity).upsert(registration.entry)
+            if (!save(registration.entry)) {
+                failCreate(getString(R.string.vault_full))
+                return@launch
+            }
 
             val responseJson = JSONObject().apply {
                 put("id", registration.entry.credentialId)
@@ -369,6 +412,62 @@ class CredentialActivity : AppCompatActivity() {
             negotiated
         }
     }
+
+    /** False when the vault cannot take the entry. Nothing has changed in that case. */
+    private suspend fun save(entry: PasskeyEntry): Boolean = try {
+        VaultRepository.get(this).upsert(entry)
+        true
+    } catch (_: VaultFile.VaultTooLargeException) {
+        false
+    }
+
+    private sealed interface Verification {
+        class Done(val userVerified: Boolean) : Verification
+        class Refused(val reason: String) : Verification
+    }
+
+    /**
+     * Decides the UV flag of the signature about to be released, the same way the QR flow
+     * does in [com.pqvault.app.ui.VaultViewModel.approveHybrid].
+     *
+     * An open vault is not a verified user. The vault may have been unlocked minutes ago
+     * and the phone handed to someone since, and claiming UV on that basis tells a site
+     * that relies on it (as the second factor of a passwordless sign-in, typically) that
+     * the owner was checked when nobody was. So unless the user has just opened the vault,
+     * a fresh Keystore-bound verification is asked for whenever the phone has a secure
+     * lock, and cancelling it releases nothing. Without such a lock the flag is honestly
+     * cleared, and a site that requires UV is refused here rather than later.
+     */
+    private suspend fun verifyUser(rpId: String, required: Boolean): Verification {
+        // The passphrase or Keystore-bound biometric that opened the vault a few seconds
+        // ago, in this activity or in the unlock action just before it, is a verification
+        // already. Prompting again would only teach people to tap through prompts.
+        if (VaultRepository.get(this).verifiedRecently()) {
+            return Verification.Done(userVerified = true)
+        }
+        val verification = HybridUserVerification(this)
+        if (!verification.isAvailable) {
+            return if (required) {
+                Verification.Refused(getString(R.string.hybrid_uv_unavailable))
+            } else {
+                Verification.Done(userVerified = false)
+            }
+        }
+        return when (val result = verification.verify(this, rpId)) {
+            HybridUserVerification.Result.Verified -> Verification.Done(userVerified = true)
+            HybridUserVerification.Result.Cancelled ->
+                Verification.Refused(getString(R.string.verification_cancelled))
+            is HybridUserVerification.Result.Failed -> Verification.Refused(result.message)
+        }
+    }
+
+    /**
+     * A browser hands over the 32-byte hash of a clientDataJSON it built itself. Anything
+     * else has us build that JSON, and a request without a challenge would produce an
+     * assertion that proves nothing about freshness.
+     */
+    private fun isUsableClientData(providedHash: ByteArray?, challenge: String): Boolean =
+        if (providedHash != null) providedHash.size == CLIENT_DATA_HASH_SIZE else challenge.isNotEmpty()
 
     private fun clientDataJson(type: String, challenge: String, origin: String): String =
         JSONObject().apply {

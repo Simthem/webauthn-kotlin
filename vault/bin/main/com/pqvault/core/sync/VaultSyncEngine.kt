@@ -2,6 +2,7 @@ package com.pqvault.core.sync
 
 import com.pqvault.core.UnlockedVault
 import com.pqvault.core.Vault
+import com.pqvault.core.format.VaultFile
 import com.pqvault.core.merge.VaultMerge
 
 /**
@@ -102,6 +103,12 @@ class VaultSyncEngine(
 
             /** Other devices kept writing between our read and our write. */
             class Contended(val attempts: Int) : Failure()
+
+            /**
+             * The merged vault would no longer fit in a vault file. Nothing was written
+             * and the local vault is left as it was before the merge.
+             */
+            object TooLarge : Failure()
         }
     }
 
@@ -124,7 +131,11 @@ class VaultSyncEngine(
                     return Outcome.Failed(Outcome.Failure.RemoteReadFailed(remote.message))
 
                 is WebDavClient.GetResult.NotFound -> {
-                    val bytes = local.serialize()
+                    val bytes = try {
+                        local.serialize()
+                    } catch (_: VaultFile.VaultTooLargeException) {
+                        return Outcome.Failed(Outcome.Failure.TooLarge)
+                    }
                     when (val put = dav.put(remotePath, bytes, ifNoneMatchAny = true)) {
                         is WebDavClient.PutResult.Success ->
                             return Outcome.Created(put.etag, local.vaultVersion, bytes)
@@ -161,14 +172,20 @@ class VaultSyncEngine(
                         remoteTombstones = remoteVault.tombstones,
                         remoteDevices = remoteVault.devices,
                     )
-                    val hadRemoteChanges = local.applyMerge(merge)
-
-                    // The pushed version must exceed the one already on the server, or the
-                    // next device to read it would correctly diagnose a rollback.
-                    local.vaultVersion = maxOf(local.vaultVersion, remoteVault.vaultVersion)
-                    remoteVault.close()
-
-                    val bytes = local.serialize()
+                    var hadRemoteChanges = false
+                    val bytes = try {
+                        local.serializeChange {
+                            hadRemoteChanges = applyMerge(merge)
+                            // The pushed version must exceed the one already on the server,
+                            // or the next device to read it would correctly diagnose a
+                            // rollback.
+                            vaultVersion = maxOf(vaultVersion, remoteVault.vaultVersion)
+                        }
+                    } catch (_: VaultFile.VaultTooLargeException) {
+                        return Outcome.Failed(Outcome.Failure.TooLarge)
+                    } finally {
+                        remoteVault.close()
+                    }
                     when (val put = dav.put(remotePath, bytes, ifMatch = remote.etag)) {
                         is WebDavClient.PutResult.Success ->
                             return if (hadRemoteChanges || merge.conflicts.isNotEmpty()) {

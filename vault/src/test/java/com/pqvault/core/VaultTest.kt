@@ -3,6 +3,7 @@ package com.pqvault.core
 import com.google.common.truth.Truth.assertThat
 import com.pqvault.core.crypto.Argon2id
 import com.pqvault.core.crypto.HybridKem
+import com.pqvault.core.format.VaultFile
 import com.pqvault.core.model.PasskeyEntry
 import org.junit.jupiter.api.Test
 
@@ -193,5 +194,36 @@ class VaultTest {
             .toByteArray(Charsets.ISO_8859_1)
         assertThat(Vault.open(weakened, passphrase))
             .isNotInstanceOf(Vault.OpenResult.Success::class.java)
+    }
+
+    @Test
+    fun `a change that cannot be saved leaves the vault as it was`() {
+        val vault = Vault.create(passphrase, testKdf)
+        vault.addOrReplace(entry("cred-1"))
+        openSuccess(vault.serializeChange { })
+
+        val failure = runCatching {
+            vault.serializeChange {
+                addOrReplace(entry("cred-2"))
+                delete("cred-1")
+                throw VaultFile.VaultTooLargeException(VaultFile.MAX_FILE_BYTES + 1L)
+            }
+        }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(VaultFile.VaultTooLargeException::class.java)
+        assertThat(vault.entries.map { it.credentialId }).containsExactly("cred-1")
+        assertThat(vault.tombstones).isEmpty()
+        assertThat(vault.vaultVersion).isEqualTo(1)
+        // And the next save carries on from where the last written one stopped.
+        assertThat(openSuccess(vault.serialize()).vault.vaultVersion).isEqualTo(2)
+    }
+
+    @Test
+    fun `a vault larger than the format allows is never framed`() {
+        val oversized = ByteArray(VaultFile.MAX_FILE_BYTES)
+
+        val failure = runCatching { VaultFile.encode("{}", oversized, ByteArray(64)) }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(VaultFile.VaultTooLargeException::class.java)
     }
 }

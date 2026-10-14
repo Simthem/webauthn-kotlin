@@ -32,9 +32,25 @@ object VaultFile {
 
     class MalformedVaultException(message: String) : Exception(message)
 
+    /** The vault has outgrown what the format can hold. [size] is in bytes. */
+    class VaultTooLargeException(val size: Long) :
+        IllegalStateException("vault of $size bytes exceeds the $MAX_FILE_BYTES-byte format limit")
+
+    /**
+     * Refuses to frame anything [decode] would reject. Without this check a vault grown
+     * past the content bound would be written, replace the previous file, and then never
+     * open again. Failing here leaves the previous file in place.
+     */
     fun encode(headerJson: String, content: ByteArray, signature: ByteArray): ByteArray {
         val out = ByteArrayOutputStream()
         val headerBytes = headerJson.toByteArray(Charsets.UTF_8)
+        if (headerBytes.size > MAX_HEADER_BYTES || content.size > MAX_CONTENT_BYTES ||
+            signature.size > MAX_SIGNATURE_BYTES
+        ) {
+            throw VaultTooLargeException(
+                MAGIC.size + 12L + headerBytes.size + content.size + signature.size,
+            )
+        }
         out.write(MAGIC)
         out.writeInt(headerBytes.size)
         out.write(headerBytes)
@@ -127,6 +143,13 @@ object VaultFile {
     private const val MAX_HEADER_BYTES = 1 shl 20
     private const val MAX_CONTENT_BYTES = 1 shl 26
     private const val MAX_SIGNATURE_BYTES = 1 shl 16
+
+    /**
+     * The largest file [decode] accepts: magic, three length prefixes and the three
+     * bounded parts. Every reader of a whole vault file (import, WebDAV download) caps
+     * its read here, so a vault that syncs can always be imported, and the reverse.
+     */
+    const val MAX_FILE_BYTES = 8 + 3 * 4 + MAX_HEADER_BYTES + MAX_CONTENT_BYTES + MAX_SIGNATURE_BYTES
 
     private fun ByteArrayOutputStream.writeInt(value: Int) {
         write((value ushr 24) and 0xff)

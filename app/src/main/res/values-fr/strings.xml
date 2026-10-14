@@ -159,18 +159,19 @@
     <string name="biometric_invalidated">Une nouvelle empreinte a été enregistrée : la clé biométrique a été invalidée. Utilisez votre phrase secrète, puis réactivez-la.</string>
     <string name="settings_saved">Réglages enregistrés.</string>
     <string name="device_enrolled_message">Appareil enrôlé : la synchronisation en arrière-plan est possible.</string>
-    <string name="sync_uploaded">Coffre envoyé (v%d).</string>
-    <string name="sync_pushed">Synchronisé (v%d).</string>
-    <string name="sync_merged">Fusionné (v%d).</string>
+    <string name="sync_uploaded">Coffre envoyé.</string>
+    <string name="sync_pushed">Synchronisé.</string>
+    <string name="sync_merged">Synchronisé, modifications d\'un autre appareil fusionnées.</string>
     <plurals name="sync_merged_conflicts">
-        <item quantity="one">Fusionné (v%1$d), %2$d conflit résolu.</item>
-        <item quantity="many">Fusionné (v%1$d), %2$d conflits résolus.</item>
-        <item quantity="other">Fusionné (v%1$d), %2$d conflits résolus.</item>
+        <item quantity="one">Synchronisé, %d conflit résolu.</item>
+        <item quantity="many">Synchronisé, %d conflits résolus.</item>
+        <item quantity="other">Synchronisé, %d conflits résolus.</item>
     </plurals>
     <string name="sync_remote_unreadable">Le coffre distant ne s\'ouvre pas avec cette clé.</string>
     <string name="no_webdav_configured">Aucun serveur WebDAV configuré.</string>
     <string name="vault_locked_error">Le coffre est verrouillé.</string>
     <string name="unlock_cancelled">Déverrouillage annulé.</string>
+    <string name="verification_cancelled">Vérification annulée. Aucune signature n\'a été émise.</string>
     <string name="untrusted_rollback">Le fichier local est plus ancien (v%1$d) que la dernière version acceptée (v%2$d).</string>
     <string name="untrusted_signature">La signature du coffre est invalide.</string>
     <string name="untrusted_signer">Le coffre est signé par une clé inconnue.</string>
@@ -182,8 +183,9 @@
     </plurals>
     <string name="import_read_failed">Impossible de lire le fichier sélectionné.</string>
     <string name="import_read_failed_detail">Impossible de lire le fichier sélectionné : %s</string>
-    <string name="import_too_large">Le coffre sélectionné est trop volumineux.</string>
-    <string name="import_failed">Échec de l’import du coffre : %s</string>
+    <string name="import_too_large">Ce coffre ne rentre pas. Un fichier de coffre contient au plus 64 Mo, soit environ 100 000 passkeys.</string>
+    <string name="vault_full">Le coffre est plein. Un fichier de coffre contient au plus 64 Mo, soit environ 100 000 passkeys. Supprimez celles qui ne servent plus pour faire de la place.</string>
+    <string name="import_failed">Échec de l\'import du coffre : %s</string>
 
     <!-- Notifications -->
     <string name="channel_sync_name">Synchronisation</string>

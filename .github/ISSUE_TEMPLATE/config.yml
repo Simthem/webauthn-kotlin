@@ -1,0 +1,7 @@
+# Shown in the "New issue" chooser, so someone about to file a vulnerability as a public
+# issue is pointed at the private route first. Ordinary issues stay open to everyone.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Simthem/webauthn-kotlin/security/advisories/new
+    about: Privately, never as a public issue. See SECURITY.md.

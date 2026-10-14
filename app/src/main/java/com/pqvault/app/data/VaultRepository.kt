@@ -1,6 +1,7 @@
 package com.pqvault.app.data
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.AtomicFile
 import com.pqvault.app.R
 import com.pqvault.app.notify.SyncNotifications
@@ -8,6 +9,7 @@ import com.pqvault.app.sync.OkHttpWebDavClient
 import com.pqvault.core.UnlockedVault
 import com.pqvault.core.Vault
 import com.pqvault.core.format.Base64Url
+import com.pqvault.core.format.VaultFile
 import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.sync.VaultSyncEngine
 import com.pqvault.core.sync.WebDavClient
@@ -52,6 +54,10 @@ class VaultRepository private constructor(private val context: Context) {
 
     @Volatile
     private var lastActivityAt: Long = 0
+
+    /** elapsedRealtime of the last passphrase or biometric unlock, 0 once locked. */
+    @Volatile
+    private var verifiedAt: Long = 0
 
     private val _unlockedState = MutableStateFlow(false)
 
@@ -101,7 +107,7 @@ class VaultRepository private constructor(private val context: Context) {
             .getOrElse { deviceIdentity.recreate() }
         vault.enrollDevice(identity.deviceId, android.os.Build.MODEL ?: "this device", identity.keyPair.publicKey)
         val bytes = vault.serialize()
-        vaultFile.writeBytes(bytes)
+        writeVaultAtomically(bytes)
         // A new vault shares nothing with whatever was here before, so the whole synced
         // history goes with it. Carrying over a watermark from the old vault would have
         // the first sync read the server's copy of the *new* one as a rollback.
@@ -169,7 +175,7 @@ class VaultRepository private constructor(private val context: Context) {
             return RestoreOutcome.Untrusted(context.getString(R.string.untrusted_signer))
         }
 
-        vaultFile.writeBytes(remote.bytes)
+        writeVaultAtomically(remote.bytes)
         settings.update {
             it.copy(
                 pinnedSigningKey = Base64Url.encode(success.signingPublicKey),
@@ -193,7 +199,7 @@ class VaultRepository private constructor(private val context: Context) {
      */
     suspend fun importVault(fileBytes: ByteArray, passphrase: CharArray): ImportOutcome =
         mutex.withLock {
-            if (fileBytes.size > MAX_IMPORT_BYTES) return ImportOutcome.TooLarge
+            if (fileBytes.size > VaultFile.MAX_FILE_BYTES) return ImportOutcome.TooLarge
 
             val opened = try {
                 Vault.open(
@@ -264,13 +270,14 @@ class VaultRepository private constructor(private val context: Context) {
                 return ImportOutcome.Locked
             }
 
-            var changed = 0
             try {
-                for (candidate in imported.vault.entries) {
+                // Worked out first and applied in one change, so a merge that no longer
+                // fits in a vault file is undone as a whole rather than half kept.
+                val merges = imported.vault.entries.mapNotNull { candidate ->
                     val deletion = local.tombstones
                         .filter { it.credentialId == candidate.credentialId }
                         .maxByOrNull { it.deletedAt }
-                    if (deletion != null && deletion.deletedAt >= candidate.updatedAt) continue
+                    if (deletion != null && deletion.deletedAt >= candidate.updatedAt) return@mapNotNull null
 
                     val current = local.find(candidate.credentialId)
                     val merged = when {
@@ -279,18 +286,17 @@ class VaultRepository private constructor(private val context: Context) {
                             candidate.copy(signCount = maxOf(candidate.signCount, current.signCount))
                         else -> current.copy(signCount = maxOf(candidate.signCount, current.signCount))
                     }
-                    if (current != merged) {
-                        local.addOrReplace(merged)
-                        changed += 1
-                    }
+                    merged.takeIf { it != current }
                 }
 
-                if (changed > 0) {
-                    writeVaultAtomically(local.serialize())
+                if (merges.isNotEmpty()) {
+                    writeVaultAtomically(local.serializeChange { merges.forEach(::addOrReplace) })
                     rememberVersion(local)
                     touch()
                 }
-                return ImportOutcome.Success(changed, replacedVault = false)
+                return ImportOutcome.Success(merges.size, replacedVault = false)
+            } catch (failure: VaultFile.VaultTooLargeException) {
+                return ImportOutcome.TooLarge
             } catch (failure: Exception) {
                 return ImportOutcome.Failed(failure.message ?: "vault import failed")
             } finally {
@@ -345,6 +351,7 @@ class VaultRepository private constructor(private val context: Context) {
                 UnlockOutcome.Untrusted(context.getString(R.string.untrusted_signer))
             } else {
                 unlocked = result.vault
+                verifiedAt = SystemClock.elapsedRealtime()
                 if (current.pinnedSigningKey.isEmpty()) {
                     // Trust on first use: pin the signer now so every later open can
                     // detect a substituted vault.
@@ -386,7 +393,20 @@ class VaultRepository private constructor(private val context: Context) {
         autoLockJob = null
         unlocked?.close()
         unlocked = null
+        verifiedAt = 0
         _unlockedState.value = false
+    }
+
+    /**
+     * True when the vault was opened by the user, with the passphrase or a biometric,
+     * within the last few seconds. The credential provider unlocks from one activity and
+     * signs from the next, and this lets the second one count the unlock the user has
+     * just gone through instead of prompting them again. Anything older than that is an
+     * open vault, not a verified user.
+     */
+    fun verifiedRecently(): Boolean {
+        val at = verifiedAt
+        return isUnlocked && at != 0L && SystemClock.elapsedRealtime() - at <= FRESH_VERIFICATION_MS
     }
 
     /**
@@ -460,19 +480,21 @@ class VaultRepository private constructor(private val context: Context) {
 
     fun allEntries(): List<PasskeyEntry> = unlocked?.entries.orEmpty()
 
+    /**
+     * Throws [VaultFile.VaultTooLargeException] when the vault cannot take one more
+     * passkey. The vault in memory and the file on disk are then both left as they were.
+     */
     suspend fun upsert(entry: PasskeyEntry): Unit = mutex.withLock {
         val vault = unlocked ?: return
         touch()
-        vault.addOrReplace(entry)
-        vaultFile.writeBytes(vault.serialize())
+        writeVaultAtomically(vault.serializeChange { addOrReplace(entry) })
         rememberVersion(vault)
     }
 
     suspend fun delete(credentialId: String): Unit = mutex.withLock {
         val vault = unlocked ?: return
         touch()
-        vault.delete(credentialId)
-        vaultFile.writeBytes(vault.serialize())
+        writeVaultAtomically(vault.serializeChange { delete(credentialId) })
         rememberVersion(vault)
     }
 
@@ -486,11 +508,20 @@ class VaultRepository private constructor(private val context: Context) {
     }
 
 
-    /** True once this device holds a recipient entry and can sync unattended. */
-    fun isDeviceEnrolled(): Boolean {
-        if (!deviceIdentity.exists()) return false
-        val id = runCatching { deviceIdentity.loadOrCreate().deviceId }.getOrNull() ?: return false
-        return unlocked?.devices?.any { it.deviceId == id } ?: false
+    /**
+     * The devices the open vault lists. Cheap, and meant for the main thread: that is
+     * where the vault's lists are changed in place, so reading them there is safe.
+     */
+    fun enrolledDeviceIds(): Set<String> = unlocked?.devices?.mapTo(HashSet()) { it.deviceId }.orEmpty()
+
+    /**
+     * This device's id, or null without a readable identity. It decrypts through the
+     * Keystore and decodes an ML-KEM key on the way, which is no work for the main thread.
+     */
+    fun thisDeviceId(): String? = if (!deviceIdentity.exists()) {
+        null
+    } else {
+        runCatching { deviceIdentity.loadOrCreate().deviceId }.getOrNull()
     }
 
     /** Adds this device as a recipient of an already-unlocked vault. */
@@ -498,12 +529,15 @@ class VaultRepository private constructor(private val context: Context) {
         val vault = unlocked ?: return false
         val identity = runCatching { deviceIdentity.loadOrCreate() }
             .getOrElse { deviceIdentity.recreate() }
-        vault.enrollDevice(
-            identity.deviceId,
-            android.os.Build.MODEL ?: "this device",
-            identity.keyPair.publicKey,
+        writeVaultAtomically(
+            vault.serializeChange {
+                enrollDevice(
+                    identity.deviceId,
+                    android.os.Build.MODEL ?: "this device",
+                    identity.keyPair.publicKey,
+                )
+            },
         )
-        vaultFile.writeBytes(vault.serialize())
         rememberVersion(vault)
         true
     }
@@ -678,7 +712,7 @@ class VaultRepository private constructor(private val context: Context) {
         // Store the exact bytes that were uploaded. Re-serialising here would bump the
         // version again and leave the local file ahead of the server, which the next
         // sync would correctly report as a rollback.
-        vaultFile.writeBytes(written.bytes)
+        writeVaultAtomically(written.bytes)
         settings.update {
             it.copy(
                 lastSyncEtag = written.etag.orEmpty(),
@@ -719,7 +753,7 @@ class VaultRepository private constructor(private val context: Context) {
          * the deadline the user chose, long enough to be invisible on a battery graph.
          */
         private const val AUTO_LOCK_POLL_MS = 15_000L
-        const val MAX_IMPORT_BYTES = 32 * 1024 * 1024
+        private const val FRESH_VERIFICATION_MS = 30_000L
 
         // The instance holds the *application* context, taken in get() below, so it
         // lives exactly as long as the process does and leaks nothing. Lint cannot see
@@ -761,6 +795,7 @@ class VaultRepository private constructor(private val context: Context) {
                 context.getString(R.string.sync_write_failed, reason.detail)
             is VaultSyncEngine.Outcome.Failure.Contended ->
                 context.getString(R.string.sync_contended, reason.attempts)
+            VaultSyncEngine.Outcome.Failure.TooLarge -> context.getString(R.string.vault_full)
         }
     }
 }

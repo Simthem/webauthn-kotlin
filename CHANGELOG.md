@@ -1,3 +1,57 @@
+## [2.1.6](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.5...v2.1.6) (2026-10-14)
+
+### Fixed
+
+- Smooth out scrolling of the passkey list. Custom icons are loaded through Compose's
+  vector cache instead of parsing their XML again for every row entering the screen, the
+  refresh after resuming the app no longer runs Keystore decryptions and browser
+  certificate digests on the main thread, unchanged rows are skipped when the list is
+  rebuilt, and a baseline profile has the app's own code compiled ahead of time.
+- Write the vault atomically on every save. Adding, using or deleting a passkey, enrolling
+  a device and restoring or syncing used to overwrite the file in place, so a process
+  killed mid-write could corrupt the only local copy.
+- Refuse a vault that has outgrown the format instead of writing a file that would never
+  open again. Creating a passkey, importing, merging and syncing now report a full vault,
+  over QR with the CTAP status for a full key store, and leave the file and the passkeys
+  in memory untouched. The vault version only moves once a file is actually written.
+- Accept for import any file the format accepts, up to the same 64 MB as a synced vault,
+  rather than refusing those above 32 MB.
+
+### Changed
+
+- Say "Synced" after a sync instead of quoting the vault version number, which grows with
+  every save on every device. The rollback warnings still show both versions.
+- Add a security policy and point the issue chooser to private vulnerability reporting.
+- Add a `beta` build type for testers: the release code, not debuggable, signed with the
+  same debug key as earlier betas so it installs over them and keeps every vault. It does
+  about a third of the main-thread work of a debug build while the passkey list scrolls.
+
+### Security
+
+- Ask for a fresh fingerprint or screen-lock check before the system passkey provider
+  signs or creates a passkey, as the QR flow already did. An unlocked vault no longer
+  counts as a verified user, except within 30 seconds of the unlock itself. Without a
+  secure lock the signature reports that no verification took place, and sites that
+  require one are refused.
+- Refuse to sign when the request reaching the provider names another site than the
+  passkey picked, when the challenge is missing, or when the user id is not 1 to 64
+  bytes. Malformed request JSON now fails the request instead of crashing the activity.
+- Apply the HTTPS rule of the settings screen to the server address of a pairing QR code.
+- Cap a vault download at the largest size a vault file can have.
+- Pin the Snyk CLI and OSV-Scanner binaries of the GitLab pipeline by version and SHA-256
+  instead of running whatever "latest" serves.
+
+### Changed
+
+- Build on JDK 21, requested by the build itself for the Gradle daemon and the compilers,
+  whatever `JAVA_HOME` names. The APK keeps Java 11 bytecode. CI runs on JDK 21.
+- Assign Gradle properties with `=` throughout and replace the `kotlinOptions` and
+  `packagingOptions` blocks, removing every deprecation Gradle 10 would turn into an error.
+- Read every plugin and SDK version from `gradle.properties`, aligned on the versions
+  actually in use, and drop the declarations no build script read.
+- Stop tracking `vault/bin/`, a copy of the vault sources left by the VS Code Java
+  extension.
+
 ## [2.1.5](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.4...v2.1.5) (2026-10-13)
 
 ### Fixed

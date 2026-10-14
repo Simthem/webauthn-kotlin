@@ -33,6 +33,8 @@ object Ctap2Protocol {
     const val STATUS_CREDENTIAL_EXCLUDED = 0x19
     const val STATUS_UNSUPPORTED_ALGORITHM = 0x26
     const val STATUS_OPERATION_DENIED = 0x27
+    /** CTAP2_ERR_KEY_STORE_FULL: the vault cannot hold another passkey. */
+    const val STATUS_KEY_STORE_FULL = 0x28
     const val STATUS_KEEPALIVE_CANCEL = 0x2d
     const val STATUS_NO_CREDENTIALS = 0x2e
     const val STATUS_UNSUPPORTED_OPTION = 0x2b

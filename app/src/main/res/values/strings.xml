@@ -160,17 +160,18 @@
     <string name="biometric_invalidated">A new fingerprint was enrolled, so the biometric key was invalidated. Use your passphrase, then turn it back on.</string>
     <string name="settings_saved">Settings saved.</string>
     <string name="device_enrolled_message">Device enrolled: background sync is now possible.</string>
-    <string name="sync_uploaded">Vault uploaded (v%d).</string>
-    <string name="sync_pushed">Synced (v%d).</string>
-    <string name="sync_merged">Merged (v%d).</string>
+    <string name="sync_uploaded">Vault uploaded.</string>
+    <string name="sync_pushed">Synced.</string>
+    <string name="sync_merged">Synced, changes from another device merged.</string>
     <plurals name="sync_merged_conflicts">
-        <item quantity="one">Merged (v%1$d), %2$d conflict resolved.</item>
-        <item quantity="other">Merged (v%1$d), %2$d conflicts resolved.</item>
+        <item quantity="one">Synced, %d conflict resolved.</item>
+        <item quantity="other">Synced, %d conflicts resolved.</item>
     </plurals>
     <string name="sync_remote_unreadable">The remote vault does not open with this key.</string>
     <string name="no_webdav_configured">No WebDAV server configured.</string>
     <string name="vault_locked_error">The vault is locked.</string>
     <string name="unlock_cancelled">Unlock cancelled.</string>
+    <string name="verification_cancelled">Verification cancelled. No signature was released.</string>
     <string name="untrusted_rollback">The local file is older (v%1$d) than the last accepted version (v%2$d).</string>
     <string name="untrusted_signature">The vault signature is invalid.</string>
     <string name="untrusted_signer">The vault is signed by an unknown key.</string>
@@ -181,7 +182,8 @@
     </plurals>
     <string name="import_read_failed">The selected file could not be read.</string>
     <string name="import_read_failed_detail">The selected file could not be read: %s</string>
-    <string name="import_too_large">The selected vault is too large.</string>
+    <string name="import_too_large">This vault does not fit. A vault file holds at most 64 MB, roughly 100,000 passkeys.</string>
+    <string name="vault_full">The vault is full. A vault file holds at most 64 MB, roughly 100,000 passkeys. Delete the ones you no longer use to make room.</string>
     <string name="import_failed">Vault import failed: %s</string>
 
     <!-- Notifications -->

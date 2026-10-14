@@ -13,6 +13,9 @@ local.properties
 *.iml
 /.idea
 /captures
+# The VS Code Java extension compiles Gradle modules into bin/, next to build/. It held
+# a second, stale-prone copy of every vault source that grep and scanners reported twice.
+bin/
 
 # Native build
 .externalNativeBuild

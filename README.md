@@ -17,11 +17,13 @@ you want, that no third party can read.
   - [What the app does](#what-the-app-does)
   - [Requirements](#requirements)
   - [Building](#building)
+    - [Beta builds for testers](#beta-builds-for-testers)
   - [Installing](#installing)
   - [Getting started](#getting-started)
   - [Configuring Nextcloud](#configuring-nextcloud)
   - [Enabling PQ Vault as a passkey provider](#enabling-pq-vault-as-a-passkey-provider)
   - [Importing a vault file](#importing-a-vault-file)
+    - [How many passkeys fit](#how-many-passkeys-fit)
   - [Using a passkey on another device](#using-a-passkey-on-another-device)
   - [Biometric unlock](#biometric-unlock)
   - [Locking the vault](#locking-the-vault)
@@ -75,22 +77,23 @@ those passkeys in a browser running on another computer or tablet.
 
 | | |
 |---|---|
-| JDK | 17 or later, with `javac` |
+| JDK | 21, installed anywhere Gradle can find it |
 | Android SDK | Platform 36, build-tools 36.x |
 | Gradle | Provided by the wrapper (9.0.0) |
 
-Watch out for a common trap on Debian and Ubuntu: the `openjdk-17-jre` package does not
-ship `javac`. Kotlin compilation will still succeed, and then the Android module fails on
-`compileDebugJavaWithJavac` with a message about a "toolchain" that does not help. Check
-with:
+The build asks for JDK 21 itself: the Gradle daemon through
+`gradle/gradle-daemon-jvm.properties`, the compilers and the tests through a Java
+toolchain. Gradle looks for it among the JDKs installed on the machine, so `JAVA_HOME`
+only has to start the wrapper: any Java 17 or later will do, even a JRE without `javac`.
+Nothing is downloaded:
+with no JDK 21 installed the build stops and says so. On Debian and Ubuntu:
 
 ```bash
-$JAVA_HOME/bin/javac -version
+sudo apt install openjdk-21-jdk
 ```
 
-If the command is missing, install a real JDK (`openjdk-17-jdk`) and point `JAVA_HOME` at
-it. To avoid re-exporting it on every command, set `org.gradle.java.home` once in
-`~/.gradle/gradle.properties`, as shown under [Development](#development).
+The bytecode written into the APK stays at Java 11 (`jvmTargetIntermediate` in
+`gradle.properties`). Building on JDK 21 does not change what runs on the phone.
 
 ## Building
 
@@ -98,7 +101,6 @@ it. To avoid re-exporting it on every command, set `org.gradle.java.home` once i
 git clone https://github.com/Simthem/webauthn-kotlin.git pqvault
 cd pqvault
 
-export JAVA_HOME=/path/to/a/jdk17
 export ANDROID_HOME=$HOME/Android/Sdk
 
 ./gradlew :app:assembleDebug
@@ -115,13 +117,33 @@ Both build types are shrunk with R8. Debug builds keep names and line numbers, s
 traces and the debugger still work; only unreachable code is removed. Without that, the
 Compose runtime alone pushes the APK past 35 MB.
 
+### Beta builds for testers
+
+Hand testers the `beta` build, not the debug one:
+
+```bash
+./gradlew :app:assembleBeta
+```
+
+APKs land in `app/build/outputs/apk/beta/`. It is the release code, optimised and not
+debuggable, signed with the same debug key as the debug builds, so it installs over a
+debug APK and the tester keeps their vault. Measured on an emulator with 300 passkeys, it
+does about a third of the main-thread work per frame of a debug build while the list
+scrolls, headroom a 90 Hz screen needs. A debug APK can also be entered with
+`run-as` by anyone holding the phone over adb, which a passkey manager should not allow.
+
+The signing key is the one in `~/.android/debug.keystore` on the machine that builds the
+beta. Always build it there, keep that file private (`chmod 600`) and backed up: without
+it, testers can only take an update by uninstalling. A stable public release needs a key
+of its own, through the `release` build type.
+
 If an incremental rebuild produces a noticeably larger APK, that is not the shrinking
 failing. AGP patches the existing archive in place and can leave a hole the size of the
 previous `classes.dex` inside it. `./gradlew clean` (or deleting `app/build`) before a
 build you intend to distribute gives a compact file; the sizes above are from clean
 builds.
 
-Run every unit test (91 of them, no device or emulator needed):
+Run every unit test (132 of them, no device or emulator needed):
 
 ```bash
 ./gradlew testAll
@@ -219,6 +241,13 @@ adb shell cmd package query-services --brief \
 After that, when a site offers to create a passkey, pick PQ Vault in the sheet Android
 shows. On the next sign-in the passkey is offered automatically.
 
+Each passkey used or created this way asks for your fingerprint or screen lock first,
+exactly as the QR flow does, unless you opened the vault in the last 30 seconds. An open
+vault only proves that someone unlocked it earlier, not that you are the one holding the
+phone now, and a site that takes a passkey as its second factor relies on that check.
+Without a secure screen lock the passkey still works for sites that accept it, but the
+signature says no verification took place, and sites that require one refuse it.
+
 ## Importing a vault file
 
 Choose **Import a .pqvault file** on the first screen, or in **Settings > Add a device**
@@ -230,8 +259,20 @@ passphrase.
 - With an existing open vault, PQ Vault merges the live passkeys. It keeps the highest
   signature counter for duplicates and does not import another vault's devices,
   tombstones, signing identity, or cloud configuration.
-- A wrong passphrase, invalid signature, malformed file, or file larger than 32 MiB is
-  refused before local data is changed.
+- A wrong passphrase, invalid signature or malformed file is refused before local data
+  is changed. So is a file, or a merge, larger than a vault file can be.
+
+### How many passkeys fit
+
+A passkey takes about 600 bytes in the vault, measured on real ES256 entries: 1,000
+passkeys make a 0.6 MB file and 10,000 make 6 MB. The format holds 64 MB of content,
+roughly 100,000 passkeys, so a single vault is enough for a lifetime of sites and there is
+no need to split it. A deleted passkey leaves a tombstone of about 80 bytes so the deletion
+reaches every device.
+
+Should a vault ever reach the limit, nothing is lost: creating one more passkey, importing
+or merging is refused with a message saying the vault is full, and the file on disk and
+the passkeys in memory stay exactly as they were.
 
 ## Using a passkey on another device
 
@@ -471,8 +512,8 @@ the system settings first.
 A new fingerprint was enrolled, which invalidates the key by design. Open the vault with
 your passphrase, then turn the option back on.
 
-**The build fails on `compileDebugJavaWithJavac`.**
-Your `JAVA_HOME` points at a JRE. See [Requirements](#requirements).
+**The build stops with "Cannot find a Java installation matching languageVersion=21".**
+No JDK 21 is installed where Gradle looks. See [Requirements](#requirements).
 
 ## Project layout
 
@@ -505,27 +546,29 @@ machine with no emulator.
 ## Development
 
 ```bash
-./gradlew testAll                   # every unit test, both modules
+./gradlew testAll                   # every unit test, every module
 ./gradlew verify                    # the tests plus Android Lint, exactly what CI runs
 ./gradlew :app:assembleDebug        # debug APK
 ./gradlew :rptest:assembleDebug     # fake relying party for end-to-end testing
 ```
 
-If your `java` is a JRE, put the JDK path in `~/.gradle/gradle.properties` once instead of
-exporting `JAVA_HOME` on every command. That file is per-user and never committed:
+If JDK 21 lives somewhere Gradle does not search, such as an archive unpacked under
+`/opt`, name it once in `~/.gradle/gradle.properties`. That file is per-user and never
+committed:
 
 ```properties
-org.gradle.java.home=/usr/lib/jvm/jdk-17-oracle-x64
+org.gradle.java.installations.paths=/opt/jdk-21
 ```
 
 ### Running the tests
 
-105 unit tests, none of which need a device or an emulator.
+132 unit tests, none of which need a device or an emulator.
 
 ```bash
-./gradlew testAll                 # both modules, 105 tests
-./gradlew :vault:test             # vault core only, 92 tests
-./gradlew :app:testDebugUnitTest  # app module only, 13 tests
+./gradlew testAll                      # every module, 132 tests
+./gradlew :vault:test                  # vault core only, 94 tests
+./gradlew :app:testDebugUnitTest       # app module only, 26 tests
+./gradlew :webauthn:testDebugUnitTest  # original library, 12 tests
 ```
 
 Each task prints every test name and a count when it finishes:

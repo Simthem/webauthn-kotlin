@@ -103,7 +103,7 @@ fun PqTextField(
             {
                 IconButton(onClick = { revealed = !revealed }) {
                     Icon(
-                        imageVector = if (revealed) PqIcons.VisibilityOff else PqIcons.Visibility,
+                        painter = if (revealed) PqIcons.VisibilityOff else PqIcons.Visibility,
                         contentDescription = stringResource(if (revealed) R.string.hide else R.string.reveal),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

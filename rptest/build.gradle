@@ -4,6 +4,8 @@
  * real app would, which is the only way to prove that PQ Vault is actually offered in the
  * system picker. It is not part of the product and should not be shipped.
  */
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id "com.android.application"
     id "org.jetbrains.kotlin.android"
@@ -11,20 +13,21 @@ plugins {
 
 android {
     namespace = "com.pqvault.rptest"
-    compileSdk 36
+    compileSdk = androidCompileSdk as int
 
     defaultConfig {
-        applicationId "com.pqvault.rptest"
-        minSdk 34
-        targetSdk 36
-        versionCode 1
-        versionName "1.0"
+        applicationId = "com.pqvault.rptest"
+        // 34 on purpose, unlike the app: the Credential Manager provider API this harness
+        // exercises does not exist below Android 14.
+        minSdk = 34
+        targetSdk = androidTargetSdk as int
+        versionCode = 1
+        versionName = "1.0"
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.toVersion(jvmTargetIntermediate)
+        targetCompatibility = JavaVersion.toVersion(jvmTargetIntermediate)
     }
-    kotlinOptions { jvmTarget = "11" }
 
     // Same reports the app module produces, so the CI job can publish or archive findings
     // from this module instead of only the ones app's checkDependencies happens to reach.
@@ -33,6 +36,13 @@ android {
         htmlReport = true
         xmlReport = true
         abortOnError = true
+    }
+}
+
+kotlin {
+    jvmToolchain(jvmTargetHost as int)
+    compilerOptions {
+        jvmTarget = JvmTarget.fromTarget(jvmTargetIntermediate)
     }
 }
 

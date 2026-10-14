@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id "com.android.application"
     id "org.jetbrains.kotlin.android"
@@ -7,23 +9,24 @@ plugins {
 }
 
 android {
-    namespace "com.pqvault.app"
-    compileSdk 36
+    namespace = "com.pqvault.app"
+    compileSdk = androidCompileSdk as int
 
     defaultConfig {
-        applicationId "com.pqvault.app"
+        applicationId = "com.pqvault.app"
         // 30 rather than 34 on purpose: the app must still install and sync on older
         // /e/OS builds. The system-wide credential provider is gated at runtime instead.
-        minSdk 30
-        targetSdk 36
-        versionCode 7
-        versionName "2.1.5"
+        minSdk = androidMinSdk as int
+        targetSdk = androidTargetSdk as int
+        versionCode = 7
+        versionName = "2.1.5"
     }
 
     /*
-     * A release build must never inherit the debug key. That key is the same on every
-     * machine that ever ran the Android SDK, and for a credential provider it is more
-     * than a packaging detail: the signing certificate is the app's identity. It is what
+     * A release build must never inherit the debug key. That key is generated per machine,
+     * but behind the publicly known password "android", in a file any local account can
+     * usually read, so any copy of it can sign an update. For a credential provider that is
+     * more than a packaging detail: the signing certificate is the app's identity. It is what
      * apk-key-hash origins are derived from, what sites pin in assetlinks.json, and what
      * decides whether an update may replace this install. Shipping a release anyone can
      * sign an update for defeats all three.
@@ -37,10 +40,10 @@ android {
     signingConfigs {
         if (releaseStore) {
             release {
-                storeFile file(releaseStore)
-                storePassword project.findProperty("pqvaultStorePassword") ?: System.getenv("PQVAULT_STORE_PASSWORD")
-                keyAlias project.findProperty("pqvaultKeyAlias") ?: System.getenv("PQVAULT_KEY_ALIAS")
-                keyPassword project.findProperty("pqvaultKeyPassword") ?: System.getenv("PQVAULT_KEY_PASSWORD")
+                storeFile = file(releaseStore)
+                storePassword = project.findProperty("pqvaultStorePassword") ?: System.getenv("PQVAULT_STORE_PASSWORD")
+                keyAlias = project.findProperty("pqvaultKeyAlias") ?: System.getenv("PQVAULT_KEY_ALIAS")
+                keyPassword = project.findProperty("pqvaultKeyPassword") ?: System.getenv("PQVAULT_KEY_PASSWORD")
             }
         }
     }
@@ -50,7 +53,7 @@ android {
             // Shrink debug builds as well: without it the Compose runtime alone puts the
             // APK past 35 MB. Obfuscation stays off (see proguard-rules-debug.pro) so
             // stack traces remain readable.
-            minifyEnabled true
+            minifyEnabled = true
             proguardFiles getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro", "proguard-rules-debug.pro"
         }
@@ -58,15 +61,35 @@ android {
             // The debug APK is dominated by the ~10k icons in material-icons-extended and
             // by the unused half of BouncyCastle. Both are plain code, so R8 removes what
             // is unreachable; resource shrinking then drops the leftover assets.
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             if (releaseStore) {
-                signingConfig signingConfigs.release
+                signingConfig = signingConfigs.release
             } else {
-                signingConfig null
+                signingConfig = null
                 logger.warn("PQVAULT: no release keystore configured, the release APK will be unsigned")
             }
+        }
+        /*
+         * The beta testers get, built with ./gradlew :app:assembleBeta. It is the release
+         * code, shrunk and optimised, and not debuggable. A debug APK handed to testers
+         * costs on two counts: ART runs it two to three times slower, enough to make the
+         * passkey list stutter on a 90 Hz screen while each row is composed during the
+         * scroll, and anyone with adb on a tester's phone can `run-as` into the vault files
+         * or attach a debugger to the unlocked vault.
+         *
+         * It is signed with the debug key of the machine that builds it, the identity the
+         * beta has always had, so it installs over a debug build and every tester keeps
+         * their vault. That also means it must always be built on that machine, and that
+         * ~/.android/debug.keystore is now a key to keep safe and backed up: lose it and
+         * testers can only update by uninstalling. A stable public release takes its own
+         * key, through the release type above.
+         */
+        beta {
+            initWith release
+            signingConfig = signingConfigs.debug
+            matchingFallbacks = ["release"]
         }
     }
 
@@ -74,21 +97,18 @@ android {
     // for emulators. Shipping four copies of the native libraries helps nobody.
     splits {
         abi {
-            enable true
+            enable = true
             reset()
             include "arm64-v8a", "x86_64"
-            universalApk false
+            universalApk = false
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    kotlinOptions {
-        jvmTarget = "11"
+        sourceCompatibility = JavaVersion.toVersion(jvmTargetIntermediate)
+        targetCompatibility = JavaVersion.toVersion(jvmTargetIntermediate)
     }
     buildFeatures {
-        compose true
+        compose = true
     }
     lint {
         // SARIF is what lets CI publish findings into the code-scanning view alongside
@@ -121,10 +141,10 @@ android {
             all { test ->
                 test.testLogging {
                     events "passed", "skipped", "failed"
-                    exceptionFormat "full"
-                    showExceptions true
-                    showCauses true
-                    showStackTraces true
+                    exceptionFormat = "full"
+                    showExceptions = true
+                    showCauses = true
+                    showStackTraces = true
                 }
                 test.afterSuite { desc, result ->
                     if (desc.parent == null) {
@@ -135,7 +155,7 @@ android {
             }
         }
     }
-    packagingOptions {
+    packaging {
         jniLibs {
             // The native libraries here total 50 KB. Storing them uncompressed to allow
             // page-aligned mmap buys nothing at that size, and the alignment padding AGP
@@ -145,6 +165,19 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1,LICENSE.md,LICENSE-notice.md,NOTICE.md}"
         }
+    }
+}
+
+composeCompiler {
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("compose-stability.conf"))
+}
+
+// JDK 21 runs the compilers and the tests, whatever JAVA_HOME points to. The bytecode
+// stays at Java 11: raising it buys nothing on Android and changes what D8 is fed.
+kotlin {
+    jvmToolchain(jvmTargetHost as int)
+    compilerOptions {
+        jvmTarget = JvmTarget.fromTarget(jvmTargetIntermediate)
     }
 }
 

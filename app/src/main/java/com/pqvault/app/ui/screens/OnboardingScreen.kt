@@ -28,7 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pqvault.app.ui.VaultViewModel
@@ -206,7 +206,7 @@ fun OnboardingScreen(
 }
 
 @Composable
-private fun FeatureRow(icon: ImageVector, title: String, body: String) {
+private fun FeatureRow(icon: Painter, title: String, body: String) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         Icon(icon, contentDescription = null, tint = PqColors.Amber500, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(14.dp))

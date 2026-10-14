@@ -124,10 +124,15 @@ class UnlockedVault internal constructor(
     /** The vault master key, for wrapping into a device-local biometric recipient. */
     fun exportMasterKeyForLocalWrapping(): ByteArray = vmk.copyOf()
 
-    /** Serialises, encrypts, signs and frames the vault, bumping the version counter. */
+    /**
+     * Serialises, encrypts, signs and frames the vault, bumping the version counter.
+     *
+     * The counter only moves once the file exists: a vault too large for the format
+     * throws [VaultFile.VaultTooLargeException] and keeps its version.
+     */
     fun serialize(random: SecureRandom = SecureRandom()): ByteArray {
         check(vaultVersion < Long.MAX_VALUE) { "vault version counter exhausted" }
-        vaultVersion += 1
+        val nextVersion = vaultVersion + 1
 
         val content = VaultContent(
             entries = entries.toList(),
@@ -138,7 +143,7 @@ class UnlockedVault internal constructor(
         val contentNonce = ByteArray(XChaCha20Poly1305.NONCE_SIZE).also { random.nextBytes(it) }
 
         val header = VaultHeader(
-            vaultVersion = vaultVersion,
+            vaultVersion = nextVersion,
             contentNonce = Base64Url.encode(contentNonce),
             signingPublicKey = Base64Url.encode(signingPublicKeyEncoded),
             recipients = recipients.toList(),
@@ -160,7 +165,32 @@ class UnlockedVault internal constructor(
             signingPrivateKey,
             VaultFile.signedBytes(headerJson, ciphertext),
         )
-        return VaultFile.encode(headerJson, ciphertext, signature)
+        return VaultFile.encode(headerJson, ciphertext, signature).also { vaultVersion = nextVersion }
+    }
+
+    /**
+     * Applies [change] and serialises the result, or leaves the vault exactly as it was
+     * when that result cannot be produced, typically because it no longer fits the format.
+     * Without the rollback the vault in memory would hold a passkey the file does not,
+     * shown and usable until the next lock quietly dropped it.
+     */
+    fun serializeChange(random: SecureRandom = SecureRandom(), change: UnlockedVault.() -> Unit): ByteArray {
+        val savedEntries = entries.toMutableList()
+        val savedTombstones = tombstones.toMutableList()
+        val savedDevices = devices.toMutableList()
+        val savedRecipients = recipients.toMutableList()
+        val savedVersion = vaultVersion
+        return try {
+            change()
+            serialize(random)
+        } catch (failure: Exception) {
+            entries = savedEntries
+            tombstones = savedTombstones
+            devices = savedDevices
+            recipients = savedRecipients
+            vaultVersion = savedVersion
+            throw failure
+        }
     }
 
     fun close() {
