@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Security
+
+- Configure GitLab Secret Detection to scan the complete fetched history on
+  every pipeline. Provide an explicit ruleset that retains all bundled GitLab
+  detection rules without adding exclusions.
+
 ## [2.1.7](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.6...v2.1.7) (2026-10-23)
 
 ### Security

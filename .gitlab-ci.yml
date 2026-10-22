@@ -23,6 +23,13 @@ include:
   - template: Jobs/Secret-Detection.gitlab-ci.yml
   - template: Jobs/Dependency-Scanning.gitlab-ci.yml
 
+# Scan all fetched history, not only the current commit or diff.
+secret_detection:
+  variables:
+    GIT_DEPTH: "0"
+    SECRET_DETECTION_HISTORIC_SCAN: "true"
+  cache: []
+
 variables:
   # This runner reaches the Internet through the local HTTP CONNECT proxy. Keep both
   # cases because apt/curl prefer the lowercase variables while Node-based tools such as
