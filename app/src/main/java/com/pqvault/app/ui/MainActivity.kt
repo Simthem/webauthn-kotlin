@@ -70,7 +70,7 @@ class MainActivity : AppCompatActivity() {
     ) { granted ->
         val link = pendingFidoLink
         pendingFidoLink = null
-        if (granted && link != null) model.openFidoCode(link) else model.onFidoPermissionDenied()
+        if (granted && link != null) model.openFidoLink(link) else model.onFidoPermissionDenied()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -239,7 +239,7 @@ class MainActivity : AppCompatActivity() {
             pendingFidoLink = link
             bluetoothAdvertisePermission.launch(Manifest.permission.BLUETOOTH_ADVERTISE)
         } else {
-            model.openFidoCode(link)
+            model.openFidoLink(link)
         }
     }
 }

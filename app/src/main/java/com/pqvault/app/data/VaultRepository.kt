@@ -13,6 +13,7 @@ import com.pqvault.core.format.VaultFile
 import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.sync.VaultSyncEngine
 import com.pqvault.core.sync.WebDavClient
+import com.pqvault.core.webauthn.SoftwareAuthenticator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -489,6 +490,26 @@ class VaultRepository private constructor(private val context: Context) {
         touch()
         writeVaultAtomically(vault.serializeChange { addOrReplace(entry) })
         rememberVersion(vault)
+    }
+
+    /**
+     * Signs from the passkey as stored now and saves its raised counter before the
+     * signature is handed back, all under the vault lock: two sign-ins at once each get
+     * their own counter. Null when the vault is locked or the passkey is gone.
+     *
+     * @throws VaultFile.VaultTooLargeException as [upsert] does.
+     */
+    suspend fun signAssertion(
+        credentialId: String,
+        sign: (PasskeyEntry) -> SoftwareAuthenticator.Assertion,
+    ): SoftwareAuthenticator.Assertion? = mutex.withLock {
+        val vault = unlocked ?: return null
+        if (vault.find(credentialId) == null) return null
+        touch()
+        var assertion: SoftwareAuthenticator.Assertion? = null
+        writeVaultAtomically(vault.serializeChange { assertion = recordAssertion(credentialId, sign) })
+        rememberVersion(vault)
+        assertion
     }
 
     suspend fun delete(credentialId: String): Unit = mutex.withLock {

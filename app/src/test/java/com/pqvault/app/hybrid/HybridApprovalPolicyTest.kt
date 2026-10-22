@@ -100,4 +100,11 @@ class HybridApprovalPolicyTest {
             ),
         ).isFalse()
     }
+
+    @Test
+    fun `an outside fido link never replaces a request already under way`() {
+        assertThat(HybridApprovalPolicy.acceptsExternalLink(sessionUnderWay = false, codeWaiting = false)).isTrue()
+        assertThat(HybridApprovalPolicy.acceptsExternalLink(sessionUnderWay = true, codeWaiting = false)).isFalse()
+        assertThat(HybridApprovalPolicy.acceptsExternalLink(sessionUnderWay = false, codeWaiting = true)).isFalse()
+    }
 }

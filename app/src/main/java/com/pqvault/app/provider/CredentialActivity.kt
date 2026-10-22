@@ -13,10 +13,10 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.PublicKeyCredential
 import androidx.credentials.exceptions.CreateCredentialUnknownException
 import androidx.credentials.exceptions.GetCredentialUnknownException
+import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
 import androidx.credentials.provider.PendingIntentHandler
 import androidx.lifecycle.lifecycleScope
 import com.pqvault.app.R
-import com.pqvault.app.data.SecureSettings
 import com.pqvault.app.data.VaultRepository
 import com.pqvault.app.security.BiometricVaultLock
 import com.pqvault.app.security.HybridUserVerification
@@ -46,7 +46,7 @@ import org.json.JSONObject
 class CredentialActivity : AppCompatActivity() {
 
     private val authenticator = SoftwareAuthenticator()
-    private val assetLinks = AssetLinksValidator()
+    private val assetLinks = AssetLinksValidator.shared
 
     /** Drives the inline unlock sheet; null means no prompt is showing. */
     private val unlockPrompt = MutableStateFlow<UnlockPrompt?>(null)
@@ -81,9 +81,11 @@ class CredentialActivity : AppCompatActivity() {
     }
 
     /**
-     * The "Unlock PQ Vault" action of a locked vault. The system does not query the
-     * provider again when we return: the passkeys for the request have to come back in
-     * the result, or the picker reports that there is no sign-in information.
+     * The "Unlock PQ Vault" action of a locked vault, or "Continue with PQ Vault" when the
+     * service could not yet tell whether the caller is entitled to the site. The system
+     * does not query the provider again when we return: the passkeys for the request have
+     * to come back in the result, or the picker reports that there is no sign-in
+     * information.
      */
     private fun handleUnlock() {
         lifecycleScope.launch {
@@ -93,6 +95,15 @@ class CredentialActivity : AppCompatActivity() {
                 finish()
                 return@launch
             }
+            // The same checks as signing in with an entry, network included.
+            val caller = request.callingAppInfo?.let { CallerVerifier(privilegedAllowlist()).verify(it) }
+            val listings = request.beginGetCredentialOptions
+                .filterIsInstance<BeginGetPublicKeyCredentialOption>()
+                .mapNotNull { option ->
+                    ProviderRequestPolicy.parse(option.requestJson)?.let(ProviderRequestPolicy::rpIdOf)
+                }
+                .distinct()
+                .associateWith { rpId -> mayList(caller, rpId) }
             val result = Intent()
             PendingIntentHandler.setBeginGetCredentialResponse(
                 result,
@@ -100,7 +111,7 @@ class CredentialActivity : AppCompatActivity() {
                     this@CredentialActivity,
                     request,
                     VaultRepository.get(this@CredentialActivity),
-                ),
+                ) { rpId -> listings[rpId] ?: CredentialEntries.Listing.DENIED },
             )
             setResult(RESULT_OK, result)
             finish()
@@ -230,7 +241,10 @@ class CredentialActivity : AppCompatActivity() {
 
             // A privileged caller (a browser) supplies the hash it already built, and we
             // must sign exactly that rather than reconstructing our own clientDataJSON.
-            val providedHash = option.clientDataHash
+            val providedHash = ProviderRequestPolicy.callerClientDataHash(
+                option.clientDataHash,
+                trusted.isPrivilegedBrowser,
+            )
             if (!isUsableClientData(providedHash, challenge)) {
                 failGet(getString(R.string.provider_bad_request))
                 return@launch
@@ -251,11 +265,23 @@ class CredentialActivity : AppCompatActivity() {
                 }
             }
 
-            val assertion = authenticator.getAssertion(entry, clientDataHash, userVerified = userVerified)
             // The raised counter has to be on disk before the signature leaves: a site
             // that later sees the same counter again takes the passkey for a clone.
-            if (!save(assertion.updatedEntry)) {
+            val assertion = try {
+                repository.signAssertion(entry.credentialId) {
+                    authenticator.getAssertion(it, clientDataHash, userVerified = userVerified)
+                }
+            } catch (_: VaultFile.VaultTooLargeException) {
                 failGet(getString(R.string.vault_full))
+                return@launch
+            }
+            if (assertion == null) {
+                // The vault may have locked during the prompt, or the passkey gone meanwhile.
+                failGet(
+                    getString(
+                        if (repository.isUnlocked) R.string.provider_no_passkey else R.string.vault_locked_error,
+                    ),
+                )
                 return@launch
             }
 
@@ -328,7 +354,10 @@ class CredentialActivity : AppCompatActivity() {
                 return@launch
             }
             val origin = trusted.origin
-            val providedHash = createRequest.clientDataHash
+            val providedHash = ProviderRequestPolicy.callerClientDataHash(
+                createRequest.clientDataHash,
+                trusted.isPrivilegedBrowser,
+            )
             if (!isUsableClientData(providedHash, challenge)) {
                 failCreate(getString(R.string.provider_bad_request))
                 return@launch
@@ -477,10 +506,18 @@ class CredentialActivity : AppCompatActivity() {
             put("crossOrigin", false)
         }.toString()
 
-    private fun privilegedAllowlist(): String? =
-        SecureSettings(this).load().privilegedBrowserAllowlist
-            .takeIf { it.isNotBlank() }
-            ?.let(InstalledBrowsers::upgradeAllowlist)
+    private fun privilegedAllowlist(): String? = CredentialEntries.privilegedAllowlist(this)
+
+    /** A browser's origin must belong to the site, a native app gets the signing rules. */
+    private suspend fun mayList(caller: CallerVerifier.Result?, rpId: String): CredentialEntries.Listing {
+        val trusted = caller as? CallerVerifier.Result.Trusted ?: return CredentialEntries.Listing.DENIED
+        val allowed = if (trusted.isPrivilegedBrowser) {
+            ProviderRequestPolicy.originServes(trusted.origin, rpId)
+        } else {
+            checkAssetLinks(trusted, rpId, allowWhenUnreachable = true)
+        }
+        return if (allowed) CredentialEntries.Listing.ALLOWED else CredentialEntries.Listing.DENIED
+    }
 
     /**
      * Privileged browsers own clientDataJSON and give providers only its hash. Android's

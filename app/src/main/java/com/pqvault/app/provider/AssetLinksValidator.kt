@@ -65,17 +65,7 @@ class AssetLinksValidator(
             return@withContext Result.Denied("$rpId is not a valid relying party id")
         }
 
-        val key = "$rpId|$packageName|$certificateFingerprintHex"
-        cache[key]?.let { cached ->
-            val ttl = if (cached.allowed) CACHE_TTL_MS else DENIED_CACHE_TTL_MS
-            if (clock() - cached.fetchedAt < ttl) {
-                return@withContext if (cached.allowed) {
-                    Result.Allowed
-                } else {
-                    Result.Denied("$packageName is not declared by $rpId")
-                }
-            }
-        }
+        cached(rpId, packageName, certificateFingerprintHex)?.let { return@withContext it }
 
         val request = Request.Builder()
             .url("https://$rpId/.well-known/assetlinks.json")
@@ -84,6 +74,12 @@ class AssetLinksValidator(
 
         val body = try {
             http.newCall(request).execute().use { response ->
+                // No statement file at all is the site's answer, not an outage: an app it
+                // never declared must not be treated like one whose site is unreachable.
+                if (response.code == 404 || response.code == 410) {
+                    cache[key(rpId, packageName, certificateFingerprintHex)] = Entry(false, clock())
+                    return@withContext Result.Denied("$rpId publishes no statement file")
+                }
                 if (!response.isSuccessful) {
                     return@withContext Result.Unavailable("HTTP ${response.code} from $rpId")
                 }
@@ -107,9 +103,24 @@ class AssetLinksValidator(
             return@withContext Result.Unavailable("unreadable assetlinks.json on $rpId")
         }
 
-        cache[key] = Entry(allowed, clock())
+        cache[key(rpId, packageName, certificateFingerprintHex)] = Entry(allowed, clock())
         if (allowed) Result.Allowed else Result.Denied("$packageName is not declared by $rpId")
     }
+
+    /**
+     * The answer still fresh in the cache, without touching the network, or null when
+     * there is none. The credential provider must reply to the system within moments, so this is
+     * all it can consult before deciding whether to list a site's accounts.
+     */
+    fun cached(rpId: String, packageName: String, certificateFingerprintHex: String): Result? {
+        val cached = cache[key(rpId, packageName, certificateFingerprintHex)] ?: return null
+        val ttl = if (cached.allowed) CACHE_TTL_MS else DENIED_CACHE_TTL_MS
+        if (clock() - cached.fetchedAt >= ttl) return null
+        return if (cached.allowed) Result.Allowed else Result.Denied("$packageName is not declared by $rpId")
+    }
+
+    private fun key(rpId: String, packageName: String, certificateFingerprintHex: String) =
+        "$rpId|$packageName|$certificateFingerprintHex"
 
     private fun isDeclared(
         statements: JSONArray,
@@ -142,8 +153,11 @@ class AssetLinksValidator(
     private fun isHostname(value: String): Boolean =
         value.isNotEmpty() && value.length <= 253 && HOSTNAME.matches(value)
 
-    private companion object {
-        const val LOGIN_RELATION = "delegate_permission/common.get_login_creds"
+    companion object {
+        /** One per process, so that what one request learnt serves the next ones. */
+        val shared: AssetLinksValidator by lazy { AssetLinksValidator() }
+
+        private const val LOGIN_RELATION = "delegate_permission/common.get_login_creds"
 
         /**
          * Positive answers are cached for a day; a refusal only for a few minutes. They
@@ -151,10 +165,10 @@ class AssetLinksValidator(
          * stale "no" locks a user out of an app that has just been added to the site's
          * statement file, with nothing they can do but wait.
          */
-        const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L
-        const val DENIED_CACHE_TTL_MS = 5 * 60 * 1000L
-        const val MAX_BODY_BYTES = 512L * 1024L
+        private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L
+        private const val DENIED_CACHE_TTL_MS = 5 * 60 * 1000L
+        private const val MAX_BODY_BYTES = 512L * 1024L
 
-        val HOSTNAME = Regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+        private val HOSTNAME = Regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
     }
 }

@@ -3,6 +3,7 @@ package com.pqvault.app.diagnostics
 import android.content.Context
 import android.os.Build
 import android.util.AtomicFile
+import androidx.core.content.edit
 import java.io.File
 import java.time.Instant
 
@@ -15,7 +16,7 @@ class DiagnosticLog(context: Context) {
     fun isEnabled(): Boolean = preferences.getBoolean(ENABLED_KEY, true)
 
     fun setEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean(ENABLED_KEY, enabled).apply()
+        preferences.edit { putBoolean(ENABLED_KEY, enabled) }
         if (!enabled) clear()
     }
 

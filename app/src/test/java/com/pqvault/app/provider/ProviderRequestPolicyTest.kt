@@ -82,4 +82,13 @@ class ProviderRequestPolicyTest {
         assertThat(ProviderRequestPolicy.userHandle(user("not*base64url"))).isNull()
         assertThat(ProviderRequestPolicy.userHandle(JSONObject())).isNull()
     }
+
+    @Test
+    fun `only a trusted browser may hand over the hash of its own client data`() {
+        val hash = randomBytes(32)
+        assertThat(ProviderRequestPolicy.callerClientDataHash(hash, privilegedBrowser = true)).isEqualTo(hash)
+        // Any other app gets clientDataJSON built here, with its own apk-key-hash origin.
+        assertThat(ProviderRequestPolicy.callerClientDataHash(hash, privilegedBrowser = false)).isNull()
+        assertThat(ProviderRequestPolicy.callerClientDataHash(null, privilegedBrowser = true)).isNull()
+    }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -94,6 +96,13 @@ fun PqTextField(
         singleLine = singleLine,
         isError = isError,
         supportingText = supportingText?.let { { Text(it) } },
+        // A secret stays out of the keyboard's suggestions and learned words, revealed
+        // or not.
+        keyboardOptions = if (isPassword) {
+            KeyboardOptions(keyboardType = KeyboardType.Password)
+        } else {
+            KeyboardOptions.Default
+        },
         visualTransformation = if (isPassword && !revealed) {
             PasswordVisualTransformation()
         } else {

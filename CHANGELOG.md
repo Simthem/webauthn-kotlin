@@ -1,3 +1,39 @@
+## [2.1.7](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.6...v2.1.7) (2026-10-23)
+
+### Security
+
+- Serialize WebAuthn assertion-counter updates against the saved vault so
+  concurrent requests cannot reuse a counter. Keep the existing behavior for
+  authenticators that report a zero counter.
+- Check the caller before listing passkeys or signing. Accept externally
+  supplied `clientDataHash` only from trusted browsers, otherwise build the
+  Android origin locally. Treat a missing Digital Asset Links declaration as
+  a denial instead of a temporary network failure.
+- Bound CTAP and FIDO QR CBOR lengths and nesting before decoding. Reject an
+  external FIDO link that would replace an active hybrid request or a code
+  waiting for vault unlock. Give pending intents distinct identities.
+- Mark secret inputs so the keyboard does not offer suggestions. Do not expose
+  automatic device revocation, since it does not rotate the vault master key
+  or signing key.
+
+### Fixed
+
+- Preserve recipients during vault synchronization and handle conflicts,
+  interrupted uploads and uncertain WebDAV responses without silently
+  replacing the local state or duplicating a write.
+- Recover access to existing passkeys after loss of local settings or the
+  Android Keystore key, while requiring WebDAV settings to be entered again.
+  Keep the vault format and passkey material unchanged.
+- Add JVM and Android regression tests for counters, caller checks, CBOR,
+  credential listing, local settings and synchronization.
+
+### Release notes
+
+- Increment `versionCode` before publishing. Validate Credential Manager,
+  Digital Asset Links and WebDAV on real devices and services. The loss-of-
+  device procedure remains to create a new vault, replace affected passkeys
+  and revoke the old WebDAV application password.
+
 ## [2.1.6](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.5...v2.1.6) (2026-10-14)
 
 ### Fixed

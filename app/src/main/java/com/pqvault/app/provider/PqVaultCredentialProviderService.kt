@@ -7,7 +7,6 @@ import androidx.annotation.RequiresApi
 import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialUnknownException
-import androidx.credentials.provider.AuthenticationAction
 import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
@@ -55,21 +54,22 @@ class PqVaultCredentialProviderService : CredentialProviderService() {
                 callback.onResult(
                     BeginGetCredentialResponse(
                         authenticationActions = listOf(
-                            AuthenticationAction(
-                                title = getString(R.string.unlock_vault_title),
-                                pendingIntent = CredentialEntries.pendingIntent(
-                                    this,
-                                    CredentialActivity.ACTION_UNLOCK,
-                                    UNLOCK_REQUEST_CODE,
-                                ),
-                            ),
+                            CredentialEntries.openAction(this, R.string.unlock_vault_title),
                         ),
                     ),
                 )
                 return
             }
 
-            callback.onResult(CredentialEntries.response(this, request, repository))
+            val caller = request.callingAppInfo?.let {
+                CallerVerifier(CredentialEntries.privilegedAllowlist(this)).verify(it)
+            }
+            val assetLinks = AssetLinksValidator.shared
+            callback.onResult(
+                CredentialEntries.response(this, request, repository) { rpId ->
+                    CredentialEntries.listing(caller, rpId, assetLinks)
+                },
+            )
         } catch (e: Exception) {
             callback.onError(GetCredentialUnknownException(e.message))
         }
@@ -123,7 +123,6 @@ class PqVaultCredentialProviderService : CredentialProviderService() {
     }
 
     private companion object {
-        const val UNLOCK_REQUEST_CODE = 1
         const val CREATE_REQUEST_CODE = 2
     }
 }

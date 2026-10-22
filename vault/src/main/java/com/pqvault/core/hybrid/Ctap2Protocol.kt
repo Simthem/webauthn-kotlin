@@ -81,7 +81,9 @@ object Ctap2Protocol {
             return Request.Unknown(command)
         }
 
-        val map = CborDecoder.decode(packet.copyOfRange(1, packet.size)).singleOrNull() as? CborMap
+        val payload = packet.copyOfRange(1, packet.size)
+        CborBounds.check(payload)
+        val map = CborDecoder.decode(payload).singleOrNull() as? CborMap
             ?: throw IllegalArgumentException("CTAP payload is not a CBOR map")
         return if (command == COMMAND_MAKE_CREDENTIAL) parseMakeCredential(map) else parseGetAssertion(map)
     }

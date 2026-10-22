@@ -55,7 +55,15 @@ rather than allowing a silent downgrade.
 
 The vault master key (VMK) encrypts the content exactly once; each recipient holds its own
 wrapped copy. That is what allows a device to be enrolled **without giving it the
-passphrase**, and to be revoked by simply dropping its entry.
+passphrase**.
+
+Dropping a device's entry does **not** revoke it. A device that has unlocked the vault
+once holds the VMK and the signing private key, so it can still read and sign every later
+version, and the next sync restores its entry from any other copy. Revocation needs both
+keys rotated, which the format does not do yet. Until it does, a lost or sold device means
+creating a new vault and enrolling the remaining devices again (see the README). Either way
+the device keeps the passkeys it already synced and its WebDAV app password: those
+passkeys have to be replaced at each site and the app password revoked.
 
 - `passphrase`: Argon2id(passphrase, salt) produces a KEK that wraps the VMK
 - `device`: hybrid KEM to the device's public key
@@ -119,8 +127,9 @@ through its hybrid KEM.
 
 Its private key is sealed under a Keystore key that is deliberately **not** biometric
 gated: a worker running with the screen off cannot show a fingerprint prompt. That is
-genuinely less protection than the biometric path; the mitigation is that the device can be
-revoked from any other one, which makes its key useless.
+genuinely less protection than the biometric path, and there is no revocation to offset
+it yet: a device whose sync key is compromised is handled like a lost one (new vault,
+passkeys replaced, WebDAV app password revoked).
 
 `VaultSyncWorker` runs every 15 minutes (WorkManager's floor) under a network constraint. A
 refused remote vault returns `failure()` rather than `retry()`: it is never a transient

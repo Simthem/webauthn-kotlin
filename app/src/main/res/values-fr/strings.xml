@@ -31,6 +31,7 @@
     <string name="unlock">Déverrouiller</string>
     <string name="fingerprint">Empreinte</string>
     <string name="unlock_vault_title">Déverrouiller PQ Vault</string>
+    <string name="provider_continue_title">Continuer avec PQ Vault</string>
     <string name="unlock_vault_subtitle">Votre coffre doit être ouvert pour continuer.</string>
     <string name="cancel">Annuler</string>
     <string name="use_passphrase_instead">Utiliser la phrase secrète</string>
@@ -123,6 +124,7 @@
     <string name="hybrid_permissions_denied">L\'autorisation Bluetooth est nécessaire pour utiliser une passkey sur un autre appareil.</string>
     <string name="hybrid_invalid_code">Ce code n\'est pas un QR code FIDO valide. Visez le code affiché par le navigateur.</string>
     <string name="hybrid_unlock_to_continue">Déverrouillez votre coffre pour poursuivre la demande de passkey scannée.</string>
+    <string name="hybrid_link_ignored">Une demande de passkey est déjà en cours. Le nouveau lien a été ignoré.</string>
     <string name="hybrid_title">Demande de passkey</string>
     <string name="hybrid_connecting">Connexion au tunnel chiffré...</string>
     <string name="hybrid_waiting_computer">En attente de l\'autre appareil à proximité...</string>

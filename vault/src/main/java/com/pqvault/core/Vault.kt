@@ -13,7 +13,9 @@ import com.pqvault.core.format.VaultHeader
 import com.pqvault.core.model.DeviceRecord
 import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.model.Tombstone
+import com.pqvault.core.webauthn.SoftwareAuthenticator
 import kotlinx.serialization.json.Json
+import java.security.MessageDigest
 import java.security.SecureRandom
 
 private const val PASSPHRASE_WRAP_AAD = "pqvault/recipient/passphrase/v1"
@@ -73,14 +75,62 @@ class UnlockedVault internal constructor(
         return changed
     }
 
+    /**
+     * Keeps the recipients another copy of this vault carries, so a device enrolled
+     * elsewhere does not lose its access when this copy is the one pushed: the device
+     * records are merged, and a record without its recipient opens nothing.
+     *
+     * Only a copy sealed with this very vault key may contribute, since its recipients
+     * wrap that key, and only for a device it lists: a recipient no record accounts for
+     * is not taken in. Nothing local is ever dropped here. For a device enrolled again,
+     * the recipient matching its merged record wins. Call after [applyMerge].
+     */
+    internal fun mergeRecipients(remote: UnlockedVault) {
+        if (!MessageDigest.isEqual(vmk, remote.vmk)) return
+        val enrolledKeys = devices.associate { it.deviceId to it.kemPublicKey }
+        val merged = LinkedHashMap<String, Recipient>()
+        val remoteListed = remote.recipients.filter {
+            it is Recipient.Passphrase ||
+                (it is Recipient.Device && it.kemPublicKey == enrolledKeys[it.deviceId])
+        }
+        for (candidate in recipients + remoteListed) {
+            val slot = when (candidate) {
+                is Recipient.Passphrase -> "passphrase"
+                is Recipient.Device -> "device:${candidate.deviceId}"
+            }
+            val kept = merged[slot]
+            val matchesRecord = candidate is Recipient.Device &&
+                candidate.kemPublicKey == enrolledKeys[candidate.deviceId]
+            val keptMatchesRecord = kept is Recipient.Device &&
+                kept.kemPublicKey == enrolledKeys[kept.deviceId]
+            if (kept == null || (matchesRecord && !keptMatchesRecord)) merged[slot] = candidate
+        }
+        // A header the open path would refuse is worse than a device left to re-enrol.
+        if (merged.size <= MAX_RECIPIENTS) recipients = merged.values.toMutableList()
+    }
+
+    /**
+     * Signs with the stored copy of [credentialId] and keeps the raised counter in the
+     * same step. A copy taken earlier, before a prompt for instance, may already be
+     * behind: signing from it would hand a relying party the same counter twice, which
+     * it takes for a cloned authenticator. Null when the passkey is gone.
+     */
+    fun recordAssertion(
+        credentialId: String,
+        sign: (PasskeyEntry) -> SoftwareAuthenticator.Assertion,
+    ): SoftwareAuthenticator.Assertion? {
+        val current = find(credentialId) ?: return null
+        return sign(current).also { addOrReplace(it.updatedEntry) }
+    }
+
     fun findByRpId(rpId: String): List<PasskeyEntry> = entries.filter { it.rpId == rpId }
 
     fun find(credentialId: String): PasskeyEntry? = entries.firstOrNull { it.credentialId == credentialId }
 
     /**
      * Grants a second device access by wrapping the vault key to its hybrid public key.
-     * The passphrase is never involved, so a device can be enrolled without it, and
-     * revoked later by dropping the recipient and rotating the vault key.
+     * The passphrase is never involved, so a device can be enrolled without it. Taking
+     * that access back needs the vault key rotated, which [revokeDevice] does not do.
      */
     fun enrollDevice(
         deviceId: String,
@@ -116,6 +166,13 @@ class UnlockedVault internal constructor(
         }
     }
 
+    /**
+     * Drops the device's recipient and record from this copy only. It does not revoke:
+     * the vault key and the signing key stay the same, so a device that already
+     * unlocked keeps reading and signing later versions, and the next sync restores
+     * its record and recipient from any other copy. A real revocation needs both keys
+     * rotated. Until then, a lost device means creating a new vault.
+     */
     fun revokeDevice(deviceId: String) {
         recipients.removeAll { it is Recipient.Device && it.deviceId == deviceId }
         devices.removeAll { it.deviceId == deviceId }

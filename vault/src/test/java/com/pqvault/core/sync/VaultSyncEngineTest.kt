@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.pqvault.core.UnlockedVault
 import com.pqvault.core.Vault
 import com.pqvault.core.crypto.Argon2id
+import com.pqvault.core.crypto.HybridKem
 import com.pqvault.core.model.PasskeyEntry
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
@@ -277,5 +278,152 @@ class VaultSyncEngineTest {
         val reopened = Vault.open(written.bytes, passphrase, lastSeenVersion = written.version)
         assertThat(reopened).isInstanceOf(Vault.OpenResult.Success::class.java)
         assertThat((reopened as Vault.OpenResult.Success).vault.entries.single().signCount).isEqualTo(3L)
+    }
+
+    @Test
+    fun `a device enrolled elsewhere keeps its access across a merge`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        val phone = HybridKem.generateKeyPair()
+        deviceA.enrollDevice("phone-C", "phone C", phone.publicKey)
+        engine(server).sync(deviceA)
+
+        // B never saw C's recipient, so its ordinary sync must not take it away.
+        deviceB.addOrReplace(entry("cred-B", "gitlab.com"))
+        val outcome = engine(server).sync(deviceB)
+
+        assertThat(outcome).isInstanceOf(VaultSyncEngine.Outcome.Merged::class.java)
+        val asPhone = Vault.openWithDeviceKey(
+            server.read(remotePath)!!,
+            "phone-C",
+            phone.privateKey,
+            phone.publicKey,
+        ) as Vault.OpenResult.Success
+        assertThat(asPhone.vault.entries.map { it.credentialId }).containsExactly("cred-B")
+    }
+
+    @Test
+    fun `a device enrolled again keeps the recipient for its current key`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        val oldKey = HybridKem.generateKeyPair()
+        val newKey = HybridKem.generateKeyPair()
+        deviceB.enrollDevice("phone-C", "phone C", oldKey.publicKey, now = 1_000)
+        deviceA.enrollDevice("phone-C", "phone C", newKey.publicKey, now = 2_000)
+        engine(server).sync(deviceA)
+
+        engine(server).sync(deviceB)
+
+        val remote = server.read(remotePath)!!
+        assertThat(Vault.openWithDeviceKey(remote, "phone-C", newKey.privateKey, newKey.publicKey))
+            .isInstanceOf(Vault.OpenResult.Success::class.java)
+        assertThat(Vault.openWithDeviceKey(remote, "phone-C", oldKey.privateKey, oldKey.publicKey))
+            .isNotInstanceOf(Vault.OpenResult.Success::class.java)
+    }
+
+    @Test
+    fun `a recipient no device record accounts for is not taken in`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        val stray = HybridKem.generateKeyPair()
+        deviceA.enrollDevice("stray", "stray", stray.publicKey)
+        // The record goes, the recipient stays: a header-only device.
+        deviceA.applyMerge(
+            com.pqvault.core.merge.VaultMerge.Result(
+                entries = deviceA.entries,
+                tombstones = deviceA.tombstones,
+                devices = emptyList(),
+                conflicts = emptyList(),
+            ),
+        )
+        engine(server).sync(deviceA)
+
+        engine(server).sync(deviceB)
+
+        assertThat(deviceB.devices).isEmpty()
+        val bytes = server.read(remotePath)!!
+        assertThat(Vault.openWithDeviceKey(bytes, "stray", stray.privateKey, stray.publicKey))
+            .isInstanceOf(Vault.OpenResult.WrongPassphrase::class.java)
+    }
+
+    @Test
+    fun `another vault never contributes recipients`() {
+        // The same phone is listed by both vaults, but only the other one carries a
+        // recipient for it: that recipient wraps a different key and must stay out.
+        val phone = HybridKem.generateKeyPair()
+        val mine = Vault.create(passphrase, testKdf)
+        val other = Vault.create(passphrase, testKdf)
+        other.enrollDevice("phone", "phone", phone.publicKey, now = 1_000)
+        mine.applyMerge(
+            com.pqvault.core.merge.VaultMerge.Result(
+                entries = mine.entries,
+                tombstones = mine.tombstones,
+                devices = other.devices,
+                conflicts = emptyList(),
+            ),
+        )
+
+        mine.mergeRecipients(other)
+
+        // Taken in, it would unwrap the other vault's key and the open would fail later
+        // as malformed. Left out, there is simply no recipient for the phone.
+        val bytes = mine.serialize()
+        assertThat(Vault.openWithDeviceKey(bytes, "phone", phone.privateKey, phone.publicKey))
+            .isInstanceOf(Vault.OpenResult.WrongPassphrase::class.java)
+    }
+
+    @Test
+    fun `an unreachable server changes nothing on either side`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        deviceA.addOrReplace(entry("cred-A", "github.com"))
+        engine(server).sync(deviceA)
+        val remoteBefore = server.read(remotePath)!!.copyOf()
+
+        server.fault = FakeWebDavServer.Fault.OFFLINE
+        deviceB.addOrReplace(entry("cred-B", "gitlab.com"))
+        val outcome = engine(server).sync(deviceB)
+
+        assertThat(outcome).isInstanceOf(VaultSyncEngine.Outcome.Failed::class.java)
+        assertThat(server.read(remotePath)).isEqualTo(remoteBefore)
+        assertThat(deviceB.entries.map { it.credentialId }).containsExactly("cred-B")
+    }
+
+    @Test
+    fun `an upload cut off leaves the server copy and the next sync completes it`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        deviceA.addOrReplace(entry("cred-A", "github.com"))
+        engine(server).sync(deviceA)
+        val remoteBefore = server.read(remotePath)!!.copyOf()
+
+        server.fault = FakeWebDavServer.Fault.PUT_CUT_OFF
+        deviceB.addOrReplace(entry("cred-B", "gitlab.com"))
+        assertThat(engine(server).sync(deviceB)).isInstanceOf(VaultSyncEngine.Outcome.Failed::class.java)
+        assertThat(server.read(remotePath)).isEqualTo(remoteBefore)
+
+        server.fault = FakeWebDavServer.Fault.NONE
+        assertThat(engine(server).sync(deviceB)).isInstanceOf(VaultSyncEngine.Outcome.Written::class.java)
+        val remote = Vault.open(server.read(remotePath)!!, passphrase) as Vault.OpenResult.Success
+        assertThat(remote.vault.entries.map { it.credentialId }).containsExactly("cred-A", "cred-B")
+    }
+
+    @Test
+    fun `a write whose answer was lost is merged again without duplicates`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        deviceA.addOrReplace(entry("cred-A", "github.com"))
+        engine(server).sync(deviceA)
+
+        server.fault = FakeWebDavServer.Fault.PUT_ANSWER_LOST
+        deviceB.addOrReplace(entry("cred-B", "gitlab.com"))
+        assertThat(engine(server).sync(deviceB)).isInstanceOf(VaultSyncEngine.Outcome.Failed::class.java)
+
+        server.fault = FakeWebDavServer.Fault.NONE
+        assertThat(engine(server).sync(deviceB)).isInstanceOf(VaultSyncEngine.Outcome.Written::class.java)
+        assertThat(engine(server).sync(deviceA)).isInstanceOf(VaultSyncEngine.Outcome.Written::class.java)
+        val remote = Vault.open(server.read(remotePath)!!, passphrase) as Vault.OpenResult.Success
+        assertThat(remote.vault.entries.map { it.credentialId }).containsExactly("cred-A", "cred-B")
+        assertThat(deviceA.entries.map { it.credentialId }).containsExactly("cred-A", "cred-B")
     }
 }
