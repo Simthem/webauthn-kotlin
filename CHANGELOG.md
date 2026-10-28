@@ -5,6 +5,10 @@
 - Configure GitLab Secret Detection to scan the complete fetched history on
   every pipeline. Provide an explicit ruleset that retains all bundled GitLab
   detection rules without adding exclusions.
+- Raise the test-only transitive dependencies `org.ow2.asm` to 9.11.1
+  (CVE-2026-110257, CVE-2026-110258, CVE-2026-110260, CVE-2026-110261 and
+  CVE-2026-110263) and `org.objenesis:objenesis` to 3.6 (CVE-2026-116486).
+  Neither library is packaged in the APK.
 
 ## [2.1.7](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.6...v2.1.7) (2026-10-23)
 

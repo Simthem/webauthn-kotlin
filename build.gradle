@@ -84,6 +84,19 @@ subprojects {
                 details.useVersion(rootProject.logbackVersion)
                 details.because("Logback 1.6.5 fixes CVE-2026-104721 and keeps classic/core aligned")
             }
+            // Truth brings asm 9.7 on the test classpaths. The asm-* artifacts are
+            // released together, so they all move to the same version.
+            if (details.requested.group == "org.ow2.asm" &&
+                details.requested.name.startsWith("asm")) {
+                details.useVersion(rootProject.asmVersion)
+                details.because("asm before 9.11 is vulnerable to CVE-2026-110257, CVE-2026-110258, CVE-2026-110260, CVE-2026-110261 and CVE-2026-110263")
+            }
+            // Pulled in by mockk-agent-android and mockk-agent-jvm.
+            if (details.requested.group == "org.objenesis" &&
+                details.requested.name == "objenesis") {
+                details.useVersion(rootProject.objenesisVersion)
+                details.because("objenesis before 3.6 is vulnerable to CVE-2026-116486")
+            }
         }
     }
 }
