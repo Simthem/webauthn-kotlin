@@ -1,4 +1,4 @@
-## [Unreleased]
+## [2.1.7-1](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.6...v2.1.7) (2026-10-28)
 
 ### Security
 
