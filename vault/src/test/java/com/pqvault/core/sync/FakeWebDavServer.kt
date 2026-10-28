@@ -24,6 +24,11 @@ class FakeWebDavServer {
     /** Runs just before a PUT's precondition is evaluated, to simulate another writer. */
     var onBeforePut: (() -> Unit)? = null
 
+    /** The network as a phone sees it: down, cut during an upload, or losing the answer. */
+    enum class Fault { NONE, OFFLINE, PUT_CUT_OFF, PUT_ANSWER_LOST }
+
+    var fault = Fault.NONE
+
     fun writeDirectly(path: String, bytes: ByteArray) {
         files[path] = Stored(bytes, nextEtag())
     }
@@ -38,6 +43,7 @@ class FakeWebDavServer {
 
         override suspend fun get(path: String, knownEtag: String?): WebDavClient.GetResult {
             getCount++
+            if (fault == Fault.OFFLINE) return WebDavClient.GetResult.Error("unreachable")
             val stored = files[path] ?: return WebDavClient.GetResult.NotFound
             return WebDavClient.GetResult.Found(stored.bytes.copyOf(), stored.etag)
         }
@@ -50,6 +56,9 @@ class FakeWebDavServer {
         ): WebDavClient.PutResult {
             putCount++
             onBeforePut?.invoke()
+            if (fault == Fault.OFFLINE || fault == Fault.PUT_CUT_OFF) {
+                return WebDavClient.PutResult.Error("connection reset")
+            }
 
             val existing = files[path]
             if (ifNoneMatchAny && existing != null) {
@@ -62,6 +71,7 @@ class FakeWebDavServer {
             }
             val etag = nextEtag()
             files[path] = Stored(bytes.copyOf(), etag)
+            if (fault == Fault.PUT_ANSWER_LOST) return WebDavClient.PutResult.Error("timeout")
             return WebDavClient.PutResult.Success(etag)
         }
 

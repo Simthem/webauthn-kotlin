@@ -176,6 +176,7 @@ class VaultSyncEngine(
                     val bytes = try {
                         local.serializeChange {
                             hadRemoteChanges = applyMerge(merge)
+                            mergeRecipients(remoteVault)
                             // The pushed version must exceed the one already on the server,
                             // or the next device to read it would correctly diagnose a
                             // rollback.

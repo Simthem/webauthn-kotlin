@@ -18,8 +18,10 @@ android {
         // /e/OS builds. The system-wide credential provider is gated at runtime instead.
         minSdk = androidMinSdk as int
         targetSdk = androidTargetSdk as int
-        versionCode = 7
-        versionName = "2.1.5"
+        versionCode = 9
+        versionName = "2.1.7"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     /*
@@ -221,4 +223,9 @@ dependencies {
     // The android.jar stub returns null from every org.json call, which would make a
     // payload test pass against nothing at all. The real implementation shadows it.
     testImplementation "org.json:json:$orgJsonVersion"
+
+    // On a device or emulator: the repository with its real file, Keystore and settings.
+    androidTestImplementation "androidx.test:runner:$androidxTestRunnerVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxTestExtJunitVersion"
+    androidTestImplementation "com.google.truth:truth:$truthVersion"
 }

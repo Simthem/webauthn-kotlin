@@ -3,6 +3,8 @@ package com.pqvault.app.provider
 import com.pqvault.core.format.Base64Url
 import org.json.JSONException
 import org.json.JSONObject
+import java.net.URI
+import java.net.URISyntaxException
 
 /**
  * The checks made on a Credential Manager request before anything is signed, kept free of
@@ -35,6 +37,30 @@ internal object ProviderRequestPolicy {
      * activity is not the one the entries were built from, and nothing gets signed.
      */
     fun targets(request: JSONObject, entryRpId: String): Boolean = rpIdOf(request) == entryRpId
+
+    /**
+     * The clientDataJSON hash to sign as the caller gave it, or null when we build that JSON
+     * ourselves. Only an allowlisted browser builds it: from any other app, a ready-made hash
+     * could name a web origin the app has no claim to, and we would sign for that site.
+     */
+    fun callerClientDataHash(provided: ByteArray?, privilegedBrowser: Boolean): ByteArray? =
+        provided.takeIf { privilegedBrowser }
+
+    /**
+     * Whether a web origin relayed by a trusted browser may act for [rpId]: a page may use
+     * its own host or one of its parent domains, over HTTPS, or plain HTTP on localhost.
+     */
+    fun originServes(origin: String, rpId: String): Boolean {
+        val uri = try {
+            URI(origin)
+        } catch (_: URISyntaxException) {
+            return false
+        }
+        val host = uri.host?.lowercase() ?: return false
+        val id = rpId.lowercase()
+        val secure = uri.scheme == "https" || (uri.scheme == "http" && host == "localhost")
+        return secure && uri.rawUserInfo == null && (host == id || host.endsWith(".$id"))
+    }
 
     /**
      * True only when the site insists on user verification. "preferred", the WebAuthn

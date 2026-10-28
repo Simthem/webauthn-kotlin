@@ -31,7 +31,9 @@ object FidoQrCode {
         require(text.length <= 4096)
         require(text.regionMatches(0, PREFIX, 0, PREFIX.length, ignoreCase = true))
         val encoded = text.substring(PREFIX.length)
-        val root = CborDecoder.decode(digitsToBytes(encoded)).single() as Map
+        val bytes = digitsToBytes(encoded)
+        CborBounds.check(bytes)
+        val root = CborDecoder.decode(bytes).single() as Map
 
         val compressedKey = (root.integer(0) as? ByteString)?.bytes
             ?: throw IllegalArgumentException("missing QR public key")

@@ -367,8 +367,10 @@ Both devices then merge their changes on every sync. If you add a passkey on one
 other is offline, nothing is lost: on reconnection the two sets are merged.
 
 To remove a device (lost or sold) you currently have to create a new vault and re-enroll
-the remaining devices. A revocation call exists in the code (`revokeDevice`) but is not yet
-exposed in the interface.
+the remaining devices. The old device still holds every passkey it had synced: replace (or
+delete) those passkeys at each site, and revoke the WebDAV app password it used. The code's
+`revokeDevice` only drops the device's entry. Real revocation needs key rotation, which is
+not implemented yet.
 
 ## Background sync
 

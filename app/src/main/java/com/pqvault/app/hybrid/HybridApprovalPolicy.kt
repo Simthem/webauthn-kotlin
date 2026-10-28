@@ -6,6 +6,15 @@ import com.pqvault.core.model.PasskeyEntry
 
 /** Approval follows the received CTAP command, never a QR hint or an account label. */
 internal object HybridApprovalPolicy {
+    /**
+     * A `fido:` link opened from outside the app may start a session only when none is
+     * under way and no scanned code is waiting for the vault to unlock: any app or web
+     * page can open such a link, and it must never swap its own request in for the one
+     * the user scanned.
+     */
+    fun acceptsExternalLink(sessionUnderWay: Boolean, codeWaiting: Boolean): Boolean =
+        !sessionUnderWay && !codeWaiting
+
     fun requiresVerification(request: Ctap2Protocol.Request): Boolean = when (request) {
         is Ctap2Protocol.Request.MakeCredential -> request.userVerification
         is Ctap2Protocol.Request.GetAssertion -> request.userVerification

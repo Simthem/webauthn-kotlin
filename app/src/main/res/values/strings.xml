@@ -33,6 +33,7 @@
     <string name="unlock">Unlock</string>
     <string name="fingerprint">Fingerprint</string>
     <string name="unlock_vault_title">Unlock PQ Vault</string>
+    <string name="provider_continue_title">Continue with PQ Vault</string>
     <string name="unlock_vault_subtitle">Your vault must be open to continue.</string>
     <string name="cancel">Cancel</string>
     <string name="use_passphrase_instead">Use passphrase</string>
@@ -123,6 +124,7 @@
     <string name="hybrid_permissions_denied">Bluetooth permission is required to use a passkey on another device.</string>
     <string name="hybrid_invalid_code">This is not a valid FIDO passkey QR code. Point the camera at the code shown by the browser.</string>
     <string name="hybrid_unlock_to_continue">Unlock your vault to continue the scanned passkey request.</string>
+    <string name="hybrid_link_ignored">A passkey request is already under way. The new link was ignored.</string>
     <string name="hybrid_title">Passkey request</string>
     <string name="hybrid_connecting">Connecting to the encrypted tunnel...</string>
     <string name="hybrid_waiting_computer">Waiting for the other device nearby...</string>

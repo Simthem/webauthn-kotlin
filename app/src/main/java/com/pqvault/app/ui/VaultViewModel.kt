@@ -400,7 +400,18 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Accepts both the in-app camera result and an Android `fido:` deep link. */
+    /** A `fido:` deep link, which any app or web page can open. */
+    fun openFidoLink(text: String) {
+        val underWay = hybridSession != null &&
+            _state.value.hybridPhase !in setOf(HybridPhase.Complete, HybridPhase.Error)
+        if (!HybridApprovalPolicy.acceptsExternalLink(underWay, pendingFidoCode != null)) {
+            _state.update { it.copy(message = string(R.string.hybrid_link_ignored)) }
+            return
+        }
+        openFidoCode(text)
+    }
+
+    /** Accepts both the in-app camera result and, through [openFidoLink], a deep link. */
     fun openFidoCode(text: String) {
         val payload = FidoQrCode.parse(text)
         if (payload == null) {
@@ -492,12 +503,22 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                         val entry = prompt.candidates.firstOrNull { it.credentialId == credentialId }
                             ?: prompt.candidates.singleOrNull()
                             ?: error(string(R.string.provider_no_passkey))
-                        val assertion = authenticator.getAssertion(
-                            entry = entry,
-                            clientDataHash = request.clientDataHash,
-                            userVerified = verified,
+                        // The prompt's copy may be minutes old: sign from the stored one.
+                        val assertion = repository.signAssertion(entry.credentialId) {
+                            authenticator.getAssertion(
+                                entry = it,
+                                clientDataHash = request.clientDataHash,
+                                userVerified = verified,
+                            )
+                        } ?: error(
+                            string(
+                                if (repository.isUnlocked) {
+                                    R.string.provider_no_passkey
+                                } else {
+                                    R.string.vault_locked_error
+                                },
+                            ),
                         )
-                        repository.upsert(assertion.updatedEntry)
                         Ctap2Protocol.getAssertionResponse(
                             assertion = assertion,
                             entry = assertion.updatedEntry,

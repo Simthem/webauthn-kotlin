@@ -13,6 +13,7 @@ import com.google.common.truth.Truth.assertThat
 import com.pqvault.core.webauthn.AuthenticatorData
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.io.ByteArrayOutputStream
 
 class Ctap2ProtocolTest {
@@ -124,6 +125,22 @@ class Ctap2ProtocolTest {
         assertThat(features).containsExactly("ctap")
         // The post-handshake copy is the bare getInfo map, without a CTAP status byte.
         assertThat(CborDecoder.decode(getInfo).single()).isInstanceOf(CborMap::class.java)
+    }
+
+    @Test
+    fun `hostile CBOR headers are refused before anything is allocated`() {
+        val getAssertion = Ctap2Protocol.COMMAND_GET_ASSERTION.toByte()
+        // A byte string announcing 2 GiB, an array announcing four billion items,
+        // nesting far past any CTAP structure, and an indefinite-length map.
+        val packets = listOf(
+            byteArrayOf(getAssertion, 0x5a, 0x7f, 0xff.toByte(), 0xff.toByte(), 0xff.toByte()),
+            byteArrayOf(getAssertion, 0x9a.toByte(), 0xff.toByte(), 0xff.toByte(), 0xff.toByte(), 0xff.toByte()),
+            byteArrayOf(getAssertion) + ByteArray(100_000) { 0x81.toByte() } + byteArrayOf(0x00),
+            byteArrayOf(getAssertion, 0xbf.toByte(), 0x01, 0x02, 0xff.toByte()),
+        )
+        for (packet in packets) {
+            assertThrows<IllegalArgumentException> { Ctap2Protocol.parse(packet) }
+        }
     }
 
     private fun encode(map: CborMap): ByteArray = ByteArrayOutputStream().also {
