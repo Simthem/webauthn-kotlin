@@ -1,3 +1,14 @@
+## [2.1.8](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.7-1...v2.1.8) (2026-11-17)
+
+### Security
+
+- Raise the test-only dependency `org.json:json` to 20260814
+  (SNYK-JAVA-ORGJSON-22389193). Earlier releases parse an unquoted numeric
+  value of any length in `JSONObject.stringToValue()` and
+  `XML.stringToValue()`, so a crafted payload can hold the parser for a long
+  time. The library only replaces the Android stub during JVM unit tests and
+  is not packaged in the APK.
+
 ## [2.1.7-1](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.7...v2.1.7-1) (2026-10-28)
 
 ### Security

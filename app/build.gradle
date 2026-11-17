@@ -18,8 +18,8 @@ android {
         // /e/OS builds. The system-wide credential provider is gated at runtime instead.
         minSdk = androidMinSdk as int
         targetSdk = androidTargetSdk as int
-        versionCode = 9
-        versionName = "2.1.7"
+        versionCode = 10
+        versionName = "2.1.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
