@@ -45,6 +45,7 @@
         android:icon="@drawable/ic_vault"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
         android:theme="@style/Theme.PqVault"
         tools:targetApi="34">
 

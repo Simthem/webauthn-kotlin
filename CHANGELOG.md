@@ -1,3 +1,14 @@
+## [2.1.9](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.8...v2.1.9) (2026-11-22)
+
+### Security
+
+- The application refuses cleartext traffic
+  (`android:usesCleartextTraffic="false"`), so no library or later setting
+  can open an unencrypted connection.
+- CI checkouts no longer keep the GitHub token in the repository
+  configuration (`persist-credentials: false`), so later steps and
+  third-party actions cannot reuse it.
+
 ## [2.1.8](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.7-1...v2.1.8) (2026-11-17)
 
 ### Security
