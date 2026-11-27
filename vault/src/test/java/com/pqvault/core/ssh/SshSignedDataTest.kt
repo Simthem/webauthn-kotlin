@@ -17,11 +17,11 @@ class SshSignedDataTest {
 
     private fun ByteArrayOutputStream.string(text: String) = string(text.toByteArray())
 
-    private fun login(user: String, method: String = "publickey", hostKey: ByteArray? = null) =
+    private fun userauthRequest(name: String, method: String = "publickey", hostKey: ByteArray? = null) =
         ByteArrayOutputStream().apply {
             string(ByteArray(32) { 1 })
             write(50)
-            string(user)
+            string(name)
             string("ssh-connection")
             string(method)
             write(1)
@@ -40,10 +40,10 @@ class SshSignedDataTest {
 
     @Test
     fun `a login names the user and, when host-bound, the server key`() {
-        assertThat(SshSignedData.parse(login("git"))).isEqualTo(SshSignedData.Login("git", "ssh-connection", null))
+        assertThat(SshSignedData.parse(userauthRequest("git"))).isEqualTo(SshSignedData.Login("git", "ssh-connection", null))
 
         val hostKey = ByteArray(51) { 4 }
-        val bound = SshSignedData.parse(login("git", "publickey-hostbound-v00@openssh.com", hostKey)) as SshSignedData.Login
+        val bound = SshSignedData.parse(userauthRequest("git", "publickey-hostbound-v00@openssh.com", hostKey)) as SshSignedData.Login
         assertThat(bound.serverHostKey).startsWith("SHA256:")
     }
 
@@ -55,14 +55,14 @@ class SshSignedDataTest {
     @Test
     fun `anything else, or text that could mislead, is not identified`() {
         assertThat(SshSignedData.parse("ssh userauth".toByteArray())).isNull()
-        assertThat(SshSignedData.parse(login("root‮git"))).isNull()
-        assertThat(SshSignedData.parse(login("git") + byteArrayOf(0))).isNull()
+        assertThat(SshSignedData.parse(userauthRequest("root‮git"))).isNull()
+        assertThat(SshSignedData.parse(userauthRequest("git") + byteArrayOf(0))).isNull()
         assertThat(SshSignedData.parse(signature("git\n"))).isNull()
     }
 
     @Test
     fun `the operation counts only when its hash is the signed one`() {
-        val data = login("deploy")
+        val data = userauthRequest("deploy")
         val request = Ctap2Protocol.parse(
             Ctap2Client.getAssertion("ssh:", HybridCrypto.sha256(data), ByteArray(32), data, "ssh host.example"),
         ) as Ctap2Protocol.Request.GetAssertion
