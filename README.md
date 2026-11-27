@@ -300,15 +300,17 @@ the path that works when the camera application treats the code as unknown text.
 
 The remote flow is not a simple deep link. PQ Vault decodes the QR payload, opens the FIDO
 tunnel, broadcasts the encrypted Bluetooth proximity proof, performs the Noise handshake,
-then exchanges CTAP2 requests inside the encrypted channel. The tunnel sees only encrypted
-traffic.
+then exchanges CTAP2 requests inside the encrypted channel. The tunnel cannot read the
+requests, but it sees network metadata: both IP addresses, when each request happens, the
+tunnel identifiers and the size of the encrypted messages.
 
 ## SSH keys (OpenSSH)
 
 OpenSSH 8.2 and later can keep a key on a FIDO authenticator: the `ed25519-sk` and
 `ecdsa-sk` key types. PQ Vault can be that authenticator. The private key is created in
-the vault and never leaves it. The computer only holds a small key file with the public
-key and a key handle, and each login is signed on the phone.
+the vault and is never sent to the computer, though it syncs, encrypted, to your other
+enrolled devices like your passkeys. The computer only holds a small key file with the
+public key and a key handle, and each login is signed on the phone.
 
 **Every SSH signature needs your fingerprint or screen lock.** This does not depend on the
 options the key was created with or on what the computer asks for. A phone without a
@@ -321,13 +323,15 @@ same QR code, Bluetooth proximity check and encrypted tunnel as
 only talks to USB and NFC security keys. The optional provider in
 [desktop/](desktop/README.md) adds this transport to it, without root.
 
-The commands below assume that provider is set up (`SSH_SK_PROVIDER` or
-`SecurityKeyProvider`).
+The commands below name that provider on the command line, so a hardware FIDO2 key keeps
+working as before. [desktop/README.md](desktop/README.md) shows how to scope it to some
+hosts in `~/.ssh/config`.
 
 Creating a key, on the computer:
 
 ```bash
-ssh-keygen -t ed25519-sk -O verify-required -C "pq-vault"
+PQSK=$HOME/.local/lib/pqvault-ssh/libpqvault-sk.so
+ssh-keygen -w "$PQSK" -t ed25519-sk -O verify-required -C "pq-vault" -f ~/.ssh/id_ed25519_sk_pqvault
 ```
 
 Scan the QR code with PQ Vault. The phone asks **Create an SSH key for ssh:?** with the
@@ -343,26 +347,32 @@ the phone:
 verify-required sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29t... pq-vault
 ```
 
-Logging in: `ssh` prints `Confirm user presence for key ED25519-SK SHA256:...`. PQ Vault
-shows **Allow an SSH login?** with the same key type and fingerprint. Approve only if they
-match and you started the connection.
+Logging in: `ssh -o SecurityKeyProvider="$PQSK" -i ~/.ssh/id_ed25519_sk_pqvault server`
+prints `Confirm user presence for key ED25519-SK SHA256:...`. PQ Vault shows
+**Allow an SSH login?** with the same key type and fingerprint, then what it read from the
+data being signed: the user name, and the server host key when OpenSSH binds the request
+to it. A Git signature shows its namespace instead. The command the computer reports (for
+example `ssh git@host.example`) appears apart, marked as not verified: the server's name is
+not part of what is signed. Approve only if all of it matches what you just started.
 
 Using the key from another computer: each SSH key in the vault list has **Copy public key**
 (the `authorized_keys` line, already prefixed with `verify-required`) and **Export key
 file**, which saves the file `ssh-keygen` would have written (`id_ed25519_sk` or
 `id_ecdsa_sk`). Put it in `~/.ssh` on the other computer with `chmod 600`. It contains no
 private key, only what the computer needs to ask the phone for a signature. With the Linux
-provider, `ssh-keygen -K` downloads the resident keys instead, after you approve on the
-phone.
+provider, `ssh-keygen -w "$PQSK" -K` downloads the resident keys instead, after you approve
+on the phone.
 
 SSH keys and website passkeys are kept apart. An SSH key is never offered to an app or a
 browser on the phone, and a website passkey never answers an SSH request.
 
 SSH keys sync with the vault like passkeys. Update every device that opens the vault to
 2.2.0 or later before creating them: earlier releases cannot sign with Ed25519 and do not
-require verification for SSH keys. That second gap cannot be closed from a newer release,
-which is why the copied line carries `verify-required`: the server then refuses any
-signature made without verification, whichever device made it.
+require verification for SSH keys. A vault holding an SSH key is marked as needing 2.2.0
+(format version 2 with the `ssh-credentials` feature), so an earlier release refuses to
+open or sync it instead of handling the key under the older rules. The copied line also
+carries `verify-required`: the server then refuses any signature made without
+verification, whichever device made it.
 
 ## Biometric unlock
 
@@ -431,11 +441,15 @@ passphrase that decrypts what is stored there.
 Both devices then merge their changes on every sync. If you add a passkey on one while the
 other is offline, nothing is lost: on reconnection the two sets are merged.
 
-To remove a device (lost or sold) you currently have to create a new vault and re-enroll
-the remaining devices. The old device still holds every passkey it had synced: replace (or
-delete) those passkeys at each site, and revoke the WebDAV app password it used. The code's
-`revokeDevice` only drops the device's entry. Real revocation needs key rotation, which is
-not implemented yet.
+To remove a device (lost or sold), open *Settings > Enrolled devices* on another device,
+tap **Revoke** and enter the passphrase. PQ Vault replaces the vault key and the vault
+signing key, gives the new ones to the remaining devices only and uploads the result. The
+other devices take the new keys over on their next sync, so sync them soon.
+
+The revoked device still holds every credential it had synced, so each one is marked
+**Exposed, replace it**: create a new passkey at each site and delete the old one, remove
+exposed SSH keys from `authorized_keys`, and revoke the WebDAV app password the device used.
+Biometric unlock has to be turned on again afterwards on each device.
 
 ## Background sync
 
@@ -453,6 +467,9 @@ key. It therefore works with the screen off and the vault locked.
 
 An ordinary app is identified by its APK signature, and PQ Vault checks with the site (via
 `assetlinks.json`) that this app is actually allowed to use your passkeys for that domain.
+A missing, malformed or untrusted (TLS) answer refuses the app. When the site cannot be
+reached, an existing passkey is still offered to an app the site approved online during
+the last seven days, and to no other.
 
 A browser is different: it relays requests coming from web pages, so it declares an origin
 of its own such as `https://github.com`. It can only be believed if you trust it. By
@@ -470,8 +487,8 @@ signed by a different key stops matching instead of silently inheriting the trus
 
 | Layer | Algorithm | Post-quantum |
 |---|---|---|
-| Vault contents | XChaCha20-Poly1305 | Yes, inherently |
-| Key derivation | Argon2id, 64 MiB, 3 passes | Yes, inherently |
+| Vault contents | XChaCha20-Poly1305 | Yes, inherently, as strong as the passphrase |
+| Key derivation | Argon2id, 64 MiB, 3 passes | Yes, inherently, as strong as the passphrase |
 | Device sharing | X25519 + ML-KEM-768 | Yes |
 | File signature | Ed25519 + ML-DSA-65 | Yes |
 | Passkey and SSH key signature | ES256 (P-256), Ed25519 | No, dictated by sites and servers |
@@ -485,10 +502,12 @@ created with ES256, or with Ed25519 when that is all a client offers.
 
 **The vault contents are already quantum-resistant.** They are protected by a symmetric
 key derived from your passphrase, and Grover's algorithm only halves the effective
-security: 256 bits still leaves 128. Post-quantum becomes useful the moment asymmetric
-cryptography enters the picture, which is when sharing the key between devices. That
-wrapped copy sits on a server for years, making it a textbook harvest-now-decrypt-later
-target.
+security: 256 bits still leaves 128. That is the key's strength. Someone holding the file
+guesses passphrases instead, so the real margin is your passphrase's entropy and the
+Argon2id cost, and it assumes the cryptographic code itself is correct. Post-quantum
+becomes useful the moment asymmetric cryptography enters the picture, which is when sharing
+the key between devices. That wrapped copy sits on a server for years, making it a textbook
+harvest-now-decrypt-later target.
 
 **The trade-off to accept.** Passkey private keys are software keys, inside the file. That
 is what makes backup and sync possible, and it is exactly what the upstream library could

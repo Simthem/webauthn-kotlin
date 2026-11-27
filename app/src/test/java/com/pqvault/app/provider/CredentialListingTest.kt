@@ -9,6 +9,8 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.jupiter.api.Test
+import java.io.IOException
+import javax.net.ssl.SSLHandshakeException
 
 /**
  * Which callers see the accounts a site has in the vault, before anything is signed. The
@@ -39,9 +41,13 @@ class CredentialListingTest {
     )
 
     /** Serves [statement] as every site's assetlinks.json, without any network. */
-    private fun validator(statement: String, status: Int = 200) = AssetLinksValidator(
+    private fun validator(statement: String, status: Int = 200) = validator { Pair(status, statement) }
+
+    /** Answers with what [serve] returns now, or the exception it throws. */
+    private fun validator(serve: () -> Pair<Int, String>) = AssetLinksValidator(
         client = OkHttpClient.Builder()
             .addInterceptor { chain ->
+                val (status, statement) = serve()
                 Response.Builder()
                     .request(chain.request())
                     .protocol(Protocol.HTTP_1_1)
@@ -139,5 +145,58 @@ class CredentialListingTest {
             }
             assertThat(CredentialEntries.listing(app, "example.org", links)).isEqualTo(Listing.DENIED)
         }
+    }
+
+    @Test
+    fun `an outage honours only an association verified within the grace period`() = runBlocking {
+        var outage = false
+        val links = validator { if (outage) throw IOException("offline") else Pair(200, declaring(current)) }
+
+        val unverified = validator { throw IOException("offline") }
+            .validate("example.org", app.packageName, current)
+        assertThat((unverified as AssetLinksValidator.Result.Unavailable).previouslyVerified).isFalse()
+
+        assertThat(links.validate("example.org", app.packageName, current)).isEqualTo(AssetLinksValidator.Result.Allowed)
+        outage = true
+        now += 25 * 60 * 60 * 1000L
+        val recent = links.validate("example.org", app.packageName, current)
+        assertThat((recent as AssetLinksValidator.Result.Unavailable).previouslyVerified).isTrue()
+
+        now += AssetLinksValidator.VERIFIED_GRACE_MS
+        val stale = links.validate("example.org", app.packageName, current)
+        assertThat((stale as AssetLinksValidator.Result.Unavailable).previouslyVerified).isFalse()
+    }
+
+    @Test
+    fun `a TLS failure, a redirect or a malformed file is a refusal`() = runBlocking {
+        val answers = listOf<() -> Pair<Int, String>>(
+            { throw SSLHandshakeException("bad certificate") },
+            { Pair(301, "") },
+            { Pair(403, "") },
+            { Pair(200, "{not json") },
+            { Pair(200, "") },
+        )
+        for (answer in answers) {
+            assertThat(validator(answer).validate("example.org", app.packageName, current))
+                .isInstanceOf(AssetLinksValidator.Result.Denied::class.java)
+        }
+    }
+
+    @Test
+    fun `an explicit refusal forgets an earlier verification`() = runBlocking {
+        var statement = declaring(current)
+        var outage = false
+        val links = validator { if (outage) throw IOException("offline") else Pair(200, statement) }
+        links.validate("example.org", app.packageName, current)
+
+        statement = declaring("00:11")
+        now += 25 * 60 * 60 * 1000L
+        assertThat(links.validate("example.org", app.packageName, current))
+            .isInstanceOf(AssetLinksValidator.Result.Denied::class.java)
+
+        outage = true
+        now += 10 * 60 * 1000L
+        val after = links.validate("example.org", app.packageName, current)
+        assertThat((after as AssetLinksValidator.Result.Unavailable).previouslyVerified).isFalse()
     }
 }

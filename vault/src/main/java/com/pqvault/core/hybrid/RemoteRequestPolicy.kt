@@ -4,6 +4,7 @@ import com.pqvault.core.format.Base64Url
 import com.pqvault.core.model.CoseAlgorithm
 import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.ssh.OpenSshKeys
+import com.pqvault.core.ssh.SshSignedData
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 
 /**
@@ -34,6 +35,20 @@ object RemoteRequestPolicy {
         is Ctap2Protocol.Request.GetAssertion -> OpenSshKeys.isApplication(request.rpId)
         else -> false
     }
+
+    /**
+     * The operation an SSH request signs, read from the bytes the computer sent only once
+     * their hash is the one the signature covers. Null when it cannot be established.
+     */
+    fun sshOperation(request: Ctap2Protocol.Request.GetAssertion): SshSignedData? {
+        val data = request.signedData ?: return null
+        if (!isSsh(request) || !HybridCrypto.sha256(data).contentEquals(request.clientDataHash)) return null
+        return SshSignedData.parse(data)
+    }
+
+    /** The computer's description of the command, fit for display but never verified. */
+    fun declaredCaller(request: Ctap2Protocol.Request.GetAssertion): String? =
+        request.declaredCaller?.takeIf { it.isNotBlank() && SshSignedData.displayable(it) }
 
     fun requiresVerification(request: Ctap2Protocol.Request.MakeCredential): Boolean =
         isSsh(request) || request.userVerification || request.credentialProtection == 3

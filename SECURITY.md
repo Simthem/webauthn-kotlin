@@ -11,8 +11,8 @@ reported issue ships as a new release rather than as a patch to an old one.
 
 | Version | Supported |
 |---|---|
-| 2.1.x | Yes |
-| < 2.1 | No |
+| 2.2.x | Yes |
+| < 2.2 | No |
 
 ## Reporting a Vulnerability
 
@@ -47,6 +47,8 @@ Most worth reporting:
 - the credential provider: caller verification, origin handling, Digital Asset Links,
   user verification (`app/.../provider/`),
 - the FIDO hybrid (QR) transport, its tunnel and BLE proximity check,
+- OpenSSH keys and the Linux security key provider (`desktop/`),
+- device revocation and the signing key rotation chain,
 - WebDAV sync and pairing codes, including what a hostile server can do,
 - secrets reaching logs, backups or other apps.
 

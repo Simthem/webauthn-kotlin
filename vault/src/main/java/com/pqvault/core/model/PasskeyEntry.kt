@@ -34,6 +34,8 @@ data class PasskeyEntry(
     val createdAt: Long,
     /** Drives last-writer-wins during a sync merge. Milliseconds since epoch. */
     val updatedAt: Long,
+    /** When a device that held this credential was revoked. It has to be replaced. */
+    val exposedAt: Long? = null,
 ) {
     val algorithm: CoseAlgorithm?
         get() = CoseAlgorithm.fromId(algorithmId)
@@ -59,4 +61,15 @@ data class DeviceRecord(
     val label: String,
     val kemPublicKey: String,
     val enrolledAt: Long,
+)
+
+/**
+ * A device whose access was withdrawn. It keeps its record out of every merge, so another
+ * copy of the vault cannot bring it back, until the same key is enrolled again later.
+ */
+@Serializable
+data class RevokedDevice(
+    val deviceId: String,
+    val kemPublicKey: String,
+    val revokedAt: Long,
 )

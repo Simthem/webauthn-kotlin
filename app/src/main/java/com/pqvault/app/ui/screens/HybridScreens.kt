@@ -43,7 +43,9 @@ import com.pqvault.app.ui.components.BannerTone
 import com.pqvault.app.ui.components.PqCard
 import com.pqvault.app.ui.components.StatusBanner
 import com.pqvault.core.hybrid.Ctap2Protocol
+import com.pqvault.core.hybrid.RemoteRequestPolicy
 import com.pqvault.core.ssh.OpenSshKeys
+import com.pqvault.core.ssh.SshSignedData
 
 /** Camera overlay dedicated to the `FIDO:/` QR shown by another device. */
 @Composable
@@ -378,8 +380,12 @@ private fun SshSignIn(
     busy: Boolean,
     onApprove: (String?) -> Unit,
 ) {
+    val operation = remember(request) { RemoteRequestPolicy.sshOperation(request) }
+    val declaredCaller = remember(request) { RemoteRequestPolicy.declaredCaller(request) }
     Text(
-        stringResource(R.string.hybrid_ssh_sign_question),
+        stringResource(
+            if (operation is SshSignedData.Signature) R.string.hybrid_ssh_signature_question else R.string.hybrid_ssh_sign_question,
+        ),
         style = MaterialTheme.typography.titleSmall,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurface,
@@ -390,6 +396,43 @@ private fun SshSignIn(
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    Spacer(Modifier.height(10.dp))
+    Text(
+        stringResource(R.string.hybrid_ssh_checked_heading),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text(
+        when (operation) {
+            is SshSignedData.Login -> stringResource(R.string.hybrid_ssh_operation_login, operation.user)
+            is SshSignedData.Signature -> if (operation.namespace == "git") {
+                stringResource(R.string.hybrid_ssh_operation_git)
+            } else {
+                stringResource(R.string.hybrid_ssh_operation_signature, operation.namespace)
+            }
+            null -> stringResource(R.string.hybrid_ssh_operation_unknown)
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    (operation as? SshSignedData.Login)?.let { login ->
+        Text(
+            login.serverHostKey?.let { stringResource(R.string.hybrid_ssh_server_host_key, it) }
+                ?: stringResource(R.string.hybrid_ssh_server_unbound),
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    declaredCaller?.let {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.hybrid_ssh_declared_caller, it),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     Spacer(Modifier.height(10.dp))
     Text(
         stringResource(R.string.hybrid_ssh_sign_explanation),

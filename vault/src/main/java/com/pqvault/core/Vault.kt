@@ -7,12 +7,15 @@ import com.pqvault.core.crypto.XChaCha20Poly1305
 import com.pqvault.core.format.Base64Url
 import com.pqvault.core.format.KdfParams
 import com.pqvault.core.format.Recipient
+import com.pqvault.core.format.SigningKeyLink
 import com.pqvault.core.format.VaultContent
 import com.pqvault.core.format.VaultFile
 import com.pqvault.core.format.VaultHeader
 import com.pqvault.core.model.DeviceRecord
 import com.pqvault.core.model.PasskeyEntry
+import com.pqvault.core.model.RevokedDevice
 import com.pqvault.core.model.Tombstone
+import com.pqvault.core.ssh.OpenSshKeys
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
@@ -20,10 +23,12 @@ import java.security.SecureRandom
 
 private const val PASSPHRASE_WRAP_AAD = "pqvault/recipient/passphrase/v1"
 private const val DEVICE_WRAP_AAD = "pqvault/recipient/device/v1"
+private const val KEY_ROTATION_CONTEXT = "pqvault/signing-key-rotation/v1"
 private const val WRAPPED_VMK_SIZE = XChaCha20Poly1305.KEY_SIZE + XChaCha20Poly1305.TAG_SIZE
 private const val MIN_KDF_SALT_SIZE = 16
 private const val MAX_KDF_SALT_SIZE = 64
 private const val MAX_RECIPIENTS = 64
+private const val MAX_KEY_CHAIN = 16
 
 /**
  * Everything needed to read and modify a vault that has been successfully unlocked.
@@ -32,20 +37,27 @@ private const val MAX_RECIPIENTS = 64
  * when locking so it does not linger.
  */
 class UnlockedVault internal constructor(
-    private val vmk: ByteArray,
+    private var vmk: ByteArray,
     var vaultVersion: Long,
     private var recipients: MutableList<Recipient>,
     content: VaultContent,
-    val signingPublicKeyEncoded: ByteArray,
+    signingPublicKeyEncoded: ByteArray,
+    signingKeyChain: List<SigningKeyLink> = emptyList(),
 ) {
+    var signingPublicKeyEncoded: ByteArray = signingPublicKeyEncoded
+        private set
+    private var signingKeyChain: List<SigningKeyLink> = signingKeyChain
+
     var entries: MutableList<PasskeyEntry> = content.entries.toMutableList()
         private set
     var tombstones: MutableList<Tombstone> = content.tombstones.toMutableList()
         private set
     var devices: MutableList<DeviceRecord> = content.devices.toMutableList()
         private set
+    var revokedDevices: MutableList<RevokedDevice> = content.revokedDevices.toMutableList()
+        private set
 
-    private val signingPrivateKey: HybridSignature.PrivateKey =
+    private var signingPrivateKey: HybridSignature.PrivateKey =
         decodeSigningPrivateKey(content.signingPrivateKey)
 
     fun addOrReplace(entry: PasskeyEntry) {
@@ -68,11 +80,37 @@ class UnlockedVault internal constructor(
     internal fun applyMerge(result: com.pqvault.core.merge.VaultMerge.Result): Boolean {
         val changed = entries.toSet() != result.entries.toSet() ||
             tombstones.toSet() != result.tombstones.toSet() ||
-            devices.toSet() != result.devices.toSet()
+            devices.toSet() != result.devices.toSet() ||
+            revokedDevices.toSet() != result.revokedDevices.toSet()
         entries = result.entries.toMutableList()
         tombstones = result.tombstones.toMutableList()
         devices = result.devices.toMutableList()
+        revokedDevices = result.revokedDevices.toMutableList()
+        recipients.removeAll { recipient ->
+            recipient is Recipient.Device &&
+                devices.none { it.deviceId == recipient.deviceId && it.kemPublicKey == recipient.kemPublicKey } &&
+                revokedDevices.any { it.deviceId == recipient.deviceId && it.kemPublicKey == recipient.kemPublicKey }
+        }
         return changed
+    }
+
+    /** True when [previousKey] handed over, directly or not, to this vault's signing key. */
+    internal fun succeeds(previousKey: ByteArray): Boolean =
+        Vault.chainLeadsTo(signingKeyChain, previousKey, signingPublicKeyEncoded)
+
+    /**
+     * Takes the keys and recipients of [remote], a copy whose keys were rotated after
+     * this one's. Call before [applyMerge], inside [serializeChange].
+     */
+    internal fun adoptKeys(remote: UnlockedVault) {
+        vmk = remote.vmk.copyOf()
+        signingPrivateKey = HybridSignature.PrivateKey(
+            remote.signingPrivateKey.ed25519.copyOf(),
+            remote.signingPrivateKey.mlDsaSeed.copyOf(),
+        )
+        signingPublicKeyEncoded = remote.signingPublicKeyEncoded.copyOf()
+        signingKeyChain = remote.signingKeyChain
+        recipients = remote.recipients.toMutableList()
     }
 
     /**
@@ -129,8 +167,7 @@ class UnlockedVault internal constructor(
 
     /**
      * Grants a second device access by wrapping the vault key to its hybrid public key.
-     * The passphrase is never involved, so a device can be enrolled without it. Taking
-     * that access back needs the vault key rotated, which [revokeDevice] does not do.
+     * The passphrase is never involved, so a device can be enrolled without it.
      */
     fun enrollDevice(
         deviceId: String,
@@ -139,44 +176,77 @@ class UnlockedVault internal constructor(
         random: SecureRandom = SecureRandom(),
         now: Long = System.currentTimeMillis(),
     ) {
-        val encapsulation = HybridKem.encapsulate(devicePublicKey, random)
-        try {
-            val wrapNonce = ByteArray(XChaCha20Poly1305.NONCE_SIZE).also { random.nextBytes(it) }
-            val wrapped = XChaCha20Poly1305.seal(
-                key = encapsulation.sharedSecret,
-                nonce = wrapNonce,
-                plaintext = vmk,
-                aad = DEVICE_WRAP_AAD.toByteArray(),
-            )
-            recipients.removeAll { it is Recipient.Device && it.deviceId == deviceId }
-            recipients.add(
-                Recipient.Device(
-                    deviceId = deviceId,
-                    label = label,
-                    kemPublicKey = Base64Url.encode(devicePublicKey.encoded()),
-                    kemCiphertext = Base64Url.encode(encapsulation.ciphertext),
-                    wrappedKey = Base64Url.encode(wrapped),
-                    wrapNonce = Base64Url.encode(wrapNonce),
-                ),
-            )
-            devices.removeAll { it.deviceId == deviceId }
-            devices.add(DeviceRecord(deviceId, label, Base64Url.encode(devicePublicKey.encoded()), now))
-        } finally {
-            encapsulation.sharedSecret.fill(0)
-        }
+        val recipient = wrapForDevice(vmk, deviceId, label, devicePublicKey, random)
+        recipients.removeAll { it is Recipient.Device && it.deviceId == deviceId }
+        recipients.add(recipient)
+        devices.removeAll { it.deviceId == deviceId }
+        devices.add(DeviceRecord(deviceId, label, recipient.kemPublicKey, now))
     }
 
     /**
-     * Drops the device's recipient and record from this copy only. It does not revoke:
-     * the vault key and the signing key stay the same, so a device that already
-     * unlocked keeps reading and signing later versions, and the next sync restores
-     * its record and recipient from any other copy. A real revocation needs both keys
-     * rotated. Until then, a lost device means creating a new vault.
+     * Withdraws a device's access for good. The vault key and the signing key are both
+     * replaced, the new vault key is wrapped for the passphrase and the remaining devices
+     * only, and the old signing key signs over to the new one so the other devices accept
+     * it. Every credential the device could read is marked exposed.
+     *
+     * Call inside [serializeChange]. Returns false, changing nothing, when [passphrase]
+     * does not open this vault.
      */
-    fun revokeDevice(deviceId: String) {
-        recipients.removeAll { it is Recipient.Device && it.deviceId == deviceId }
+    fun revokeDevice(
+        deviceId: String,
+        passphrase: CharArray,
+        random: SecureRandom = SecureRandom(),
+        now: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val passphraseRecipient = recipients.filterIsInstance<Recipient.Passphrase>().singleOrNull()
+            ?: throw IllegalStateException("vault has no passphrase recipient")
+        val current = Vault.unwrapWithPassphrase(passphraseRecipient, passphrase) ?: return false
+        val matches = MessageDigest.isEqual(current, vmk)
+        current.fill(0)
+        if (!matches) return false
+
+        val revokedKey = devices.firstOrNull { it.deviceId == deviceId }?.kemPublicKey
+            ?: recipients.filterIsInstance<Recipient.Device>().firstOrNull { it.deviceId == deviceId }?.kemPublicKey
+            ?: throw IllegalArgumentException("unknown device")
+
+        val nextVmk = ByteArray(XChaCha20Poly1305.KEY_SIZE).also { random.nextBytes(it) }
+        val next = HybridSignature.generateKeyPair(random)
+        val nextPublic = next.publicKey.encoded()
+        val link = SigningKeyLink(
+            previousKey = Base64Url.encode(signingPublicKeyEncoded),
+            nextKey = Base64Url.encode(nextPublic),
+            signature = Base64Url.encode(
+                HybridSignature.sign(signingPrivateKey, Vault.rotationStatement(signingPublicKeyEncoded, nextPublic)),
+            ),
+        )
+        val kdf = passphraseRecipient.kdf
+        val nextRecipients = mutableListOf<Recipient>(
+            Vault.wrapForPassphrase(
+                nextVmk,
+                passphrase,
+                Argon2id.Params(kdf.memoryKib, kdf.iterations, kdf.parallelism),
+                random,
+            ),
+        )
+        recipients.filterIsInstance<Recipient.Device>().filter { it.deviceId != deviceId }.forEach {
+            val publicKey = HybridKem.PublicKey.decode(Base64Url.decode(it.kemPublicKey))
+            nextRecipients.add(wrapForDevice(nextVmk, it.deviceId, it.label, publicKey, random))
+        }
+
+        vmk = nextVmk
+        signingPrivateKey = next.privateKey
+        signingPublicKeyEncoded = nextPublic
+        signingKeyChain = (signingKeyChain + link).takeLast(MAX_KEY_CHAIN)
+        recipients = nextRecipients
         devices.removeAll { it.deviceId == deviceId }
+        revokedDevices.removeAll { it.deviceId == deviceId && it.kemPublicKey == revokedKey }
+        revokedDevices.add(RevokedDevice(deviceId, revokedKey, now))
+        entries = entries.map { if (it.exposedAt == null) it.copy(exposedAt = now) else it }.toMutableList()
+        return true
     }
+
+    /** The credentials a revoked device may still hold. */
+    fun exposedEntries(): List<PasskeyEntry> = entries.filter { it.exposedAt != null }
 
     /** The vault master key, for wrapping into a device-local biometric recipient. */
     fun exportMasterKeyForLocalWrapping(): ByteArray = vmk.copyOf()
@@ -195,15 +265,20 @@ class UnlockedVault internal constructor(
             entries = entries.toList(),
             tombstones = tombstones.toList(),
             devices = devices.toList(),
+            revokedDevices = revokedDevices.toList(),
             signingPrivateKey = encodeSigningPrivateKey(signingPrivateKey),
         )
         val contentNonce = ByteArray(XChaCha20Poly1305.NONCE_SIZE).also { random.nextBytes(it) }
 
+        val features = requiredFeatures()
         val header = VaultHeader(
+            formatVersion = if (features.isEmpty()) VaultFile.FORMAT_VERSION else VaultFile.FEATURES_FORMAT_VERSION,
+            features = features,
             vaultVersion = nextVersion,
             contentNonce = Base64Url.encode(contentNonce),
             signingPublicKey = Base64Url.encode(signingPublicKeyEncoded),
             recipients = recipients.toList(),
+            signingKeyChain = signingKeyChain,
         )
         val headerJson = Vault.json.encodeToString(VaultHeader.serializer(), header)
 
@@ -225,6 +300,13 @@ class UnlockedVault internal constructor(
         return VaultFile.encode(headerJson, ciphertext, signature).also { vaultVersion = nextVersion }
     }
 
+    private fun requiredFeatures(): List<String> = buildList {
+        if (entries.any(OpenSshKeys::isSshKey)) add(VaultFile.FEATURE_SSH_CREDENTIALS)
+        if (signingKeyChain.isNotEmpty() || revokedDevices.isNotEmpty() || entries.any { it.exposedAt != null }) {
+            add(VaultFile.FEATURE_DEVICE_REVOCATION)
+        }
+    }
+
     /**
      * Applies [change] and serialises the result, or leaves the vault exactly as it was
      * when that result cannot be produced, typically because it no longer fits the format.
@@ -235,30 +317,72 @@ class UnlockedVault internal constructor(
         val savedEntries = entries.toMutableList()
         val savedTombstones = tombstones.toMutableList()
         val savedDevices = devices.toMutableList()
+        val savedRevoked = revokedDevices.toMutableList()
         val savedRecipients = recipients.toMutableList()
         val savedVersion = vaultVersion
+        val savedVmk = vmk
+        val savedSigningKey = signingPrivateKey
+        val savedPublicKey = signingPublicKeyEncoded
+        val savedChain = signingKeyChain
         return try {
             change()
-            serialize(random)
+            serialize(random).also {
+                if (vmk !== savedVmk) wipe(savedVmk, savedSigningKey)
+            }
         } catch (failure: Exception) {
+            if (vmk !== savedVmk) wipe(vmk, signingPrivateKey)
             entries = savedEntries
             tombstones = savedTombstones
             devices = savedDevices
+            revokedDevices = savedRevoked
             recipients = savedRecipients
             vaultVersion = savedVersion
+            vmk = savedVmk
+            signingPrivateKey = savedSigningKey
+            signingPublicKeyEncoded = savedPublicKey
+            signingKeyChain = savedChain
             throw failure
         }
     }
 
-    fun close() {
-        vmk.fill(0)
-        // The signing key is what makes a vault file authentic, so it is every bit as
-        // worth clearing as the master key.
-        signingPrivateKey.ed25519.fill(0)
-        signingPrivateKey.mlDsaSeed.fill(0)
-    }
+    fun close() = wipe(vmk, signingPrivateKey)
 
     internal companion object {
+        fun wipe(vmk: ByteArray, signingKey: HybridSignature.PrivateKey) {
+            vmk.fill(0)
+            signingKey.ed25519.fill(0)
+            signingKey.mlDsaSeed.fill(0)
+        }
+
+        fun wrapForDevice(
+            vmk: ByteArray,
+            deviceId: String,
+            label: String,
+            devicePublicKey: HybridKem.PublicKey,
+            random: SecureRandom,
+        ): Recipient.Device {
+            val encapsulation = HybridKem.encapsulate(devicePublicKey, random)
+            try {
+                val wrapNonce = ByteArray(XChaCha20Poly1305.NONCE_SIZE).also { random.nextBytes(it) }
+                val wrapped = XChaCha20Poly1305.seal(
+                    key = encapsulation.sharedSecret,
+                    nonce = wrapNonce,
+                    plaintext = vmk,
+                    aad = DEVICE_WRAP_AAD.toByteArray(),
+                )
+                return Recipient.Device(
+                    deviceId = deviceId,
+                    label = label,
+                    kemPublicKey = Base64Url.encode(devicePublicKey.encoded()),
+                    kemCiphertext = Base64Url.encode(encapsulation.ciphertext),
+                    wrappedKey = Base64Url.encode(wrapped),
+                    wrapNonce = Base64Url.encode(wrapNonce),
+                )
+            } finally {
+                encapsulation.sharedSecret.fill(0)
+            }
+        }
+
         fun encodeSigningPrivateKey(key: HybridSignature.PrivateKey): String =
             Base64Url.encode(key.ed25519) + ":" + Base64Url.encode(key.mlDsaSeed)
 
@@ -346,6 +470,11 @@ object Vault {
     ): OpenResult = openInternal(fileBytes, pinnedSigningKey, lastSeenVersion) { header, _ ->
         val recipient = header.recipients.filterIsInstance<Recipient.Passphrase>().firstOrNull()
             ?: return@openInternal null
+        unwrapWithPassphrase(recipient, passphrase)
+    }
+
+    /** The vault key [recipient] wraps, or null when [passphrase] is not the one. */
+    internal fun unwrapWithPassphrase(recipient: Recipient.Passphrase, passphrase: CharArray): ByteArray? {
         if (recipient.kdf.algorithm != "argon2id") {
             throw MalformedVaultContent("unsupported KDF algorithm ${recipient.kdf.algorithm}")
         }
@@ -382,7 +511,7 @@ object Vault {
             salt = salt,
             params = params,
         )
-        try {
+        return try {
             XChaCha20Poly1305.open(
                 key = kek,
                 nonce = wrapNonce,
@@ -479,10 +608,24 @@ object Vault {
             return OpenResult.Malformed("unreadable header: ${e.message}")
         }
 
-        if (header.formatVersion != VaultFile.FORMAT_VERSION) {
+        val expectedFormat = if (header.features.isEmpty()) {
+            VaultFile.FORMAT_VERSION
+        } else {
+            VaultFile.FEATURES_FORMAT_VERSION
+        }
+        if (header.formatVersion != expectedFormat) {
             return OpenResult.Malformed(
                 "unsupported vault format version ${header.formatVersion}",
             )
+        }
+        val unknownFeatures = header.features.filter { it !in VaultFile.KNOWN_FEATURES }
+        if (unknownFeatures.isNotEmpty()) {
+            return OpenResult.Malformed(
+                "this vault needs a newer PQ Vault release (${unknownFeatures.joinToString()})",
+            )
+        }
+        if (header.signingKeyChain.size > MAX_KEY_CHAIN) {
+            return OpenResult.Malformed("signing key chain too long")
         }
         if (header.vaultVersion < 0) return OpenResult.Malformed("negative vault version")
         if (header.recipients.size > MAX_RECIPIENTS) {
@@ -502,7 +645,12 @@ object Vault {
             return OpenResult.Malformed("unreadable signing public key")
         }
 
-        if (pinnedSigningKey != null && !pinnedSigningKey.contentEquals(signingPublicKeyBytes)) {
+        if (header.signingKeyChain.isNotEmpty() && header.signingKeyChain.last().nextKey != header.signingPublicKey) {
+            return OpenResult.Malformed("signing key chain does not end at the signing key")
+        }
+        if (pinnedSigningKey != null && !pinnedSigningKey.contentEquals(signingPublicKeyBytes) &&
+            !chainLeadsTo(header.signingKeyChain, pinnedSigningKey, signingPublicKeyBytes)
+        ) {
             return OpenResult.UnknownSigner
         }
 
@@ -582,6 +730,7 @@ object Vault {
                 recipients = header.recipients.toMutableList(),
                 content = content,
                 signingPublicKeyEncoded = signingPublicKeyBytes.copyOf(),
+                signingKeyChain = header.signingKeyChain,
             )
         } catch (e: RuntimeException) {
             vmk.fill(0)
@@ -592,6 +741,35 @@ object Vault {
             vault = unlocked,
             signingPublicKey = signingPublicKeyBytes.copyOf(),
         )
+    }
+
+    internal fun rotationStatement(previousKey: ByteArray, nextKey: ByteArray): ByteArray =
+        KEY_ROTATION_CONTEXT.toByteArray() + previousKey + nextKey
+
+    /**
+     * True when [chain] holds an unbroken run of links from [from] to [to], each signed by
+     * the key it retires. Links older than [from] are not looked at.
+     */
+    internal fun chainLeadsTo(chain: List<SigningKeyLink>, from: ByteArray, to: ByteArray): Boolean {
+        val decoded = try {
+            chain.map { Triple(Base64Url.decode(it.previousKey), Base64Url.decode(it.nextKey), Base64Url.decode(it.signature)) }
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+        val start = decoded.indexOfFirst { it.first.contentEquals(from) }
+        if (start < 0) return false
+        var current = from
+        for ((previous, next, signature) in decoded.subList(start, decoded.size)) {
+            if (!previous.contentEquals(current)) return false
+            val valid = try {
+                HybridSignature.verify(HybridSignature.PublicKey.decode(previous), rotationStatement(previous, next), signature)
+            } catch (_: RuntimeException) {
+                false
+            }
+            if (!valid) return false
+            current = next
+        }
+        return current.contentEquals(to)
     }
 
     private fun decodeBase64Field(
@@ -613,7 +791,7 @@ object Vault {
         return decoded
     }
 
-    private fun wrapForPassphrase(
+    internal fun wrapForPassphrase(
         vmk: ByteArray,
         passphrase: CharArray,
         kdfParams: Argon2id.Params,

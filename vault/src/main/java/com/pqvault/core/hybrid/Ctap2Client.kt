@@ -89,9 +89,19 @@ object Ctap2Client {
         return byteArrayOf(Ctap2Protocol.COMMAND_MAKE_CREDENTIAL.toByte()) + encode(body)
     }
 
-    fun getAssertion(application: String, clientDataHash: ByteArray, credentialId: ByteArray): ByteArray {
+    /** [signedData] and [caller] travel in [Ctap2Protocol.EXTENSION_SSH_CONTEXT] for the approval screen. */
+    fun getAssertion(
+        application: String,
+        clientDataHash: ByteArray,
+        credentialId: ByteArray,
+        signedData: ByteArray? = null,
+        caller: String? = null,
+    ): ByteArray {
         require(OpenSshKeys.isApplication(application)) { "not an OpenSSH application" }
         require(clientDataHash.size == 32)
+        val context = CborMap()
+        signedData?.let { context.put(text("data"), ByteString(it)) }
+        caller?.let { context.put(text("caller"), text(it)) }
         val body = CborMap()
             .put(uint(1), text(application))
             .put(uint(2), ByteString(clientDataHash))
@@ -101,7 +111,10 @@ object Ctap2Client {
                     CborMap().put(text("id"), ByteString(credentialId)).put(text("type"), text("public-key")),
                 ),
             )
-            .put(uint(5), CborMap().put(text("up"), SimpleValue.TRUE).put(text("uv"), SimpleValue.TRUE))
+        if (context.keys.isNotEmpty()) {
+            body.put(uint(4), CborMap().put(text(Ctap2Protocol.EXTENSION_SSH_CONTEXT), context))
+        }
+        body.put(uint(5), CborMap().put(text("up"), SimpleValue.TRUE).put(text("uv"), SimpleValue.TRUE))
         return byteArrayOf(Ctap2Protocol.COMMAND_GET_ASSERTION.toByte()) + encode(body)
     }
 

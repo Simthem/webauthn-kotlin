@@ -174,6 +174,7 @@ class MainActivity : AppCompatActivity() {
                             onEnableBiometrics = { model.enableBiometrics(this@MainActivity) },
                             onDisableBiometrics = model::disableBiometrics,
                             onEnrollDevice = model::enrollThisDevice,
+                            onRevokeDevice = model::revokeDevice,
                             onToggleBrowser = model::toggleBrowser,
                             onShowPairingCode = model::showPairingCode,
                             onScanPairingCode = model::startPairingScan,

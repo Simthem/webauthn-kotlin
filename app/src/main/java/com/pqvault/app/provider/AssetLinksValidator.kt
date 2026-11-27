@@ -1,12 +1,17 @@
 package com.pqvault.app.provider
 
+import android.content.Context
+import androidx.core.content.edit
+import com.pqvault.core.format.Base64Url
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLException
 
 /**
  * Checks, via Digital Asset Links, that a native app is actually entitled to use a given
@@ -19,11 +24,50 @@ import java.util.concurrent.TimeUnit
  *
  * Browsers are exempt: an allowlisted browser has already been verified by
  * [CallerVerifier] and legitimately speaks for many origins.
+ *
+ * Only an outage leaves the question open: a TLS failure, a redirect, an error status
+ * or an unreadable file is a refusal. [Result.Unavailable] says whether the same
+ * association was verified within [VERIFIED_GRACE_MS], the only case a caller may let
+ * through.
  */
 class AssetLinksValidator(
     client: OkHttpClient? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val verified: VerifiedAssociations = VerifiedAssociations.InMemory(),
 ) {
+
+    /** When each association was last verified online, kept across restarts. */
+    interface VerifiedAssociations {
+        fun verifiedAt(key: String): Long?
+        fun record(key: String, at: Long)
+        fun forget(key: String)
+
+        class InMemory : VerifiedAssociations {
+            private val times = java.util.concurrent.ConcurrentHashMap<String, Long>()
+            override fun verifiedAt(key: String) = times[key]
+            override fun record(key: String, at: Long) {
+                times[key] = at
+            }
+            override fun forget(key: String) {
+                times.remove(key)
+            }
+        }
+
+        /** Stores digests of the associations, not the site and package names. */
+        class Persistent(context: Context) : VerifiedAssociations {
+            private val preferences = context.getSharedPreferences("asset_links", Context.MODE_PRIVATE)
+            private fun digest(key: String) =
+                Base64Url.encode(MessageDigest.getInstance("SHA-256").digest(key.toByteArray()))
+            override fun verifiedAt(key: String) =
+                preferences.getLong(digest(key), 0L).takeIf { it > 0L }
+            override fun record(key: String, at: Long) {
+                preferences.edit { putLong(digest(key), at) }
+            }
+            override fun forget(key: String) {
+                preferences.edit { remove(digest(key)) }
+            }
+        }
+    }
 
     private val http = client ?: OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -46,11 +90,10 @@ class AssetLinksValidator(
         class Denied(val reason: String) : Result()
 
         /**
-         * The statement file could not be fetched. Deliberately distinct from [Denied]:
-         * an offline phone must not permanently lock the user out of their own passkeys,
-         * so the caller decides how much to trust a credential it already holds.
+         * The site could not be reached. [previouslyVerified] is true when this exact
+         * association was verified online less than [VERIFIED_GRACE_MS] ago.
          */
-        class Unavailable(val reason: String) : Result()
+        class Unavailable(val reason: String, val previouslyVerified: Boolean) : Result()
     }
 
     suspend fun validate(
@@ -72,39 +115,52 @@ class AssetLinksValidator(
             .get()
             .build()
 
+        val key = key(rpId, packageName, certificateFingerprintHex)
+        fun denied(reason: String): Result {
+            cache[key] = Entry(false, clock())
+            verified.forget(key)
+            return Result.Denied(reason)
+        }
+        fun unavailable(reason: String) = Result.Unavailable(
+            reason,
+            previouslyVerified = verified.verifiedAt(key)?.let { clock() - it in 0 until VERIFIED_GRACE_MS } == true,
+        )
+
         val body = try {
             http.newCall(request).execute().use { response ->
-                // No statement file at all is the site's answer, not an outage: an app it
-                // never declared must not be treated like one whose site is unreachable.
-                if (response.code == 404 || response.code == 410) {
-                    cache[key(rpId, packageName, certificateFingerprintHex)] = Entry(false, clock())
-                    return@withContext Result.Denied("$rpId publishes no statement file")
-                }
-                if (!response.isSuccessful) {
-                    return@withContext Result.Unavailable("HTTP ${response.code} from $rpId")
+                when {
+                    response.isSuccessful -> Unit
+                    response.code >= 500 || response.code == 408 || response.code == 429 ->
+                        return@withContext unavailable("HTTP ${response.code} from $rpId")
+                    // No statement file, a redirect or a refusal is the site's answer.
+                    else -> return@withContext denied("HTTP ${response.code} from $rpId")
                 }
                 // A statement file is a few kilobytes. Capping the read stops a hostile
                 // or broken host from feeding us an endless body until the app dies.
                 response.body?.source()?.let { source ->
                     source.request(MAX_BODY_BYTES + 1)
                     if (source.buffer.size > MAX_BODY_BYTES) {
-                        return@withContext Result.Unavailable("assetlinks.json on $rpId is too large")
+                        return@withContext denied("assetlinks.json on $rpId is too large")
                     }
                     source.buffer.readUtf8()
                 }
             }
+        } catch (e: SSLException) {
+            return@withContext denied("TLS failure with $rpId: ${e.message}")
         } catch (e: IOException) {
-            return@withContext Result.Unavailable(e.message ?: "network unavailable")
-        } ?: return@withContext Result.Unavailable("empty response from $rpId")
+            return@withContext unavailable(e.message ?: "network unavailable")
+        } ?: return@withContext denied("empty response from $rpId")
 
         val allowed = try {
             isDeclared(JSONArray(body), packageName, certificateFingerprintHex)
         } catch (e: org.json.JSONException) {
-            return@withContext Result.Unavailable("unreadable assetlinks.json on $rpId")
+            return@withContext denied("unreadable assetlinks.json on $rpId")
         }
+        if (!allowed) return@withContext denied("$packageName is not declared by $rpId")
 
-        cache[key(rpId, packageName, certificateFingerprintHex)] = Entry(allowed, clock())
-        if (allowed) Result.Allowed else Result.Denied("$packageName is not declared by $rpId")
+        cache[key] = Entry(true, clock())
+        verified.record(key, clock())
+        Result.Allowed
     }
 
     /**
@@ -120,7 +176,7 @@ class AssetLinksValidator(
     }
 
     private fun key(rpId: String, packageName: String, certificateFingerprintHex: String) =
-        "$rpId|$packageName|$certificateFingerprintHex"
+        association(rpId, packageName, certificateFingerprintHex)
 
     private fun isDeclared(
         statements: JSONArray,
@@ -154,8 +210,22 @@ class AssetLinksValidator(
         value.isNotEmpty() && value.length <= 253 && HOSTNAME.matches(value)
 
     companion object {
+        @Volatile
+        private var instance: AssetLinksValidator? = null
+
+        /** The key [VerifiedAssociations] files an association under. */
+        internal fun association(rpId: String, packageName: String, certificateFingerprintHex: String) =
+            "$rpId|$packageName|$certificateFingerprintHex"
+
         /** One per process, so that what one request learnt serves the next ones. */
-        val shared: AssetLinksValidator by lazy { AssetLinksValidator() }
+        fun shared(context: Context): AssetLinksValidator = instance ?: synchronized(this) {
+            instance ?: AssetLinksValidator(
+                verified = VerifiedAssociations.Persistent(context.applicationContext),
+            ).also { instance = it }
+        }
+
+        /** How long a verified association is still honoured while its site is unreachable. */
+        const val VERIFIED_GRACE_MS = 7 * 24 * 60 * 60 * 1000L
 
         private const val LOGIN_RELATION = "delegate_permission/common.get_login_creds"
 

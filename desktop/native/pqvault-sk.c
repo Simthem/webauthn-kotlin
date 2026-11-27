@@ -2,6 +2,8 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <errno.h>
+#include <poll.h>
+#include <signal.h>
 #include <spawn.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,6 +11,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #define SSH_SK_VERSION_MAJOR		0x000a0000
@@ -77,6 +80,10 @@ int sk_load_resident_keys(const char *pin, struct sk_option **options,
 #define MAX_HANDLE	1024
 #define MAX_REPLY	(64 * 1024)
 #define USER_ID_MAX	31
+#ifndef EXCHANGE_TIMEOUT_MS
+#define EXCHANGE_TIMEOUT_MS	180000
+#endif
+#define KILL_GRACE_MS	2000
 
 extern char **environ;
 
@@ -204,12 +211,53 @@ helper_path(void)
 	return (char *)path.data;
 }
 
+static int64_t
+now_ms(void)
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		return -1;
+	return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* Waits for events on fd until the deadline. Returns 1 when ready, 0 on timeout. */
 static int
-send_all(int fd, const uint8_t *data, size_t len)
+wait_fd(int fd, short events, int64_t deadline)
+{
+	struct pollfd pfd;
+
+	for (;;) {
+		int64_t now = now_ms();
+		int n;
+
+		if (now < 0)
+			return -1;
+		if (now >= deadline)
+			return 0;
+		pfd.fd = fd;
+		pfd.events = events;
+		pfd.revents = 0;
+		n = poll(&pfd, 1, (int)(deadline - now));
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n < 0)
+			return -1;
+		if (n > 0)
+			return 1;
+	}
+}
+
+static int
+send_all(int fd, const uint8_t *data, size_t len, int64_t deadline)
 {
 	while (len > 0) {
-		ssize_t n = send(fd, data, len, MSG_NOSIGNAL);
-		if (n < 0 && errno == EINTR)
+		ssize_t n;
+
+		if (wait_fd(fd, POLLOUT, deadline) != 1)
+			return -1;
+		n = send(fd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);
+		if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
 			continue;
 		if (n <= 0)
 			return -1;
@@ -219,7 +267,37 @@ send_all(int fd, const uint8_t *data, size_t len)
 	return 0;
 }
 
-/* Runs the helper on one request and returns its complete answer. */
+/* Reaps the helper, stopping it once the deadline has passed. Returns 0 on a clean exit. */
+static int
+reap(pid_t pid, int64_t deadline)
+{
+	struct timespec pause = { 0, 20 * 1000000L };
+	int status = 0, signal_to_send = SIGTERM;
+	pid_t waited;
+
+	for (;;) {
+		int64_t now;
+
+		waited = waitpid(pid, &status, signal_to_send != 0 ? WNOHANG : 0);
+		if (waited < 0 && errno == EINTR)
+			continue;
+		if (waited != 0)
+			break;
+		now = now_ms();
+		if (now < 0 || now >= deadline) {
+			kill(pid, signal_to_send);
+			signal_to_send = signal_to_send == SIGTERM ? SIGKILL : 0;
+			deadline = now_ms() + KILL_GRACE_MS;
+			continue;
+		}
+		nanosleep(&pause, NULL);
+	}
+	if (waited != pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+		return -1;
+	return 0;
+}
+
+/* Runs the helper on one request and returns its complete answer, within a fixed delay. */
 static int
 exchange(const struct buffer *request, struct buffer *reply)
 {
@@ -227,12 +305,18 @@ exchange(const struct buffer *request, struct buffer *reply)
 	char *argv[2];
 	int pair[2] = { -1, -1 };
 	posix_spawn_file_actions_t actions;
-	pid_t pid = -1, waited;
-	int status = 0, ret = -1;
+	pid_t pid = -1;
+	int ret = -1;
+	int64_t deadline;
 	uint8_t chunk[4096];
 
 	if (path == NULL)
 		return -1;
+	if ((deadline = now_ms()) < 0) {
+		free(path);
+		return -1;
+	}
+	deadline += EXCHANGE_TIMEOUT_MS;
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) != 0) {
 		free(path);
 		return -1;
@@ -252,12 +336,16 @@ exchange(const struct buffer *request, struct buffer *reply)
 	close(pair[1]);
 	pair[1] = -1;
 
-	if (send_all(pair[0], request->data, request->len) != 0)
+	if (send_all(pair[0], request->data, request->len, deadline) != 0)
 		goto out;
 	shutdown(pair[0], SHUT_WR);
 	for (;;) {
-		ssize_t n = recv(pair[0], chunk, sizeof(chunk), 0);
-		if (n < 0 && errno == EINTR)
+		ssize_t n;
+
+		if (wait_fd(pair[0], POLLIN, deadline) != 1)
+			goto out;
+		n = recv(pair[0], chunk, sizeof(chunk), MSG_DONTWAIT);
+		if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
 			continue;
 		if (n < 0)
 			goto out;
@@ -272,13 +360,8 @@ exchange(const struct buffer *request, struct buffer *reply)
 		close(pair[0]);
 	if (pair[1] >= 0)
 		close(pair[1]);
-	if (pid > 0) {
-		do {
-			waited = waitpid(pid, &status, 0);
-		} while (waited < 0 && errno == EINTR);
-		if (waited != pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
-			ret = -1;
-	}
+	if (pid > 0 && reap(pid, ret == 0 ? deadline : 0) != 0)
+		ret = -1;
 	free(path);
 	return ret;
 }

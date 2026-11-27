@@ -17,6 +17,17 @@ import java.io.ByteArrayOutputStream
 object VaultFile {
 
     const val FORMAT_VERSION = 1
+
+    /** A file listing features in its header. Releases before 2.2.0 refuse it. */
+    const val FEATURES_FORMAT_VERSION = 2
+
+    /** OpenSSH keys, which must always be signed after user verification. */
+    const val FEATURE_SSH_CREDENTIALS = "ssh-credentials"
+
+    /** Revoked devices, rotated keys and exposed credentials, which must survive a merge. */
+    const val FEATURE_DEVICE_REVOCATION = "device-revocation"
+
+    val KNOWN_FEATURES = setOf(FEATURE_SSH_CREDENTIALS, FEATURE_DEVICE_REVOCATION)
     val MAGIC: ByteArray = "PQVAULT1".toByteArray(Charsets.US_ASCII)
 
     /** A file split into its parts, before any cryptography has been checked. */

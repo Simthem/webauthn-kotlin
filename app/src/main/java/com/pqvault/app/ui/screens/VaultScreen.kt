@@ -189,6 +189,7 @@ private fun PasskeyRow(entry: PasskeyEntry, onDelete: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (entry.exposedAt != null) Badge(stringResource(R.string.credential_exposed_badge), color = PqColors.Red)
             Badge(entry.rpId, color = PqColors.Dark2)
             Badge(entry.algorithm?.label ?: "alg ${entry.algorithmId}", color = PqColors.Amber300)
             if (entry.signCount > 0) {
@@ -232,6 +233,7 @@ private fun SshKeyRow(entry: PasskeyEntry, onCopy: () -> Unit, onExport: () -> U
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            if (entry.exposedAt != null) Badge(stringResource(R.string.credential_exposed_badge), color = PqColors.Red)
             Badge(stringResource(R.string.ssh_badge), color = PqColors.Amber300)
             Badge(entry.rpId, color = PqColors.Dark2)
             Badge(OpenSshKeys.label(entry), color = PqColors.Dark2)

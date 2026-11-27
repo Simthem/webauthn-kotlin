@@ -19,7 +19,7 @@ central trade of this project, and the same one KeePass made.
 | Layer | Algorithm | Post-quantum |
 |---|---|---|
 | Passkey and SSH key signature | ES256 (P-256), Ed25519 | **No, dictated by the site** |
-| Vault at rest | Argon2id, XChaCha20-Poly1305 | **Already resistant** |
+| Vault at rest | Argon2id, XChaCha20-Poly1305 | **Resistant, as strong as the passphrase** |
 | Multi-device key wrapping | X25519 + ML-KEM-768 (hybrid) | **Yes, real gain** |
 | Vault file signature | Ed25519 + ML-DSA-65 (hybrid) | **Yes, real gain** |
 
@@ -30,9 +30,12 @@ verifies them today. Signing with ML-DSA would produce a passkey nobody can vali
 `SoftwareAuthenticator.selectAlgorithm()` picks ES256, or Ed25519 when a client offers only
 that.
 
-**The vault at rest is already post-quantum.** Its key is symmetric and derived from the
-passphrase; Grover's algorithm only gives a quadratic speedup, so 256 bits still leaves
-about 128 bits post-quantum. There is no RSA or ECDH to break.
+**The vault at rest needs no post-quantum algorithm.** Its key is symmetric and derived
+from the passphrase. Grover's algorithm only gives a quadratic speedup, so 256 bits still
+leaves about 128 bits post-quantum, and there is no RSA or ECDH to break. That bound is the
+key's, not the vault's: an attacker with the file guesses passphrases, so the real margin is
+the passphrase's entropy times the Argon2id cost, and it also rests on the implementations
+of Argon2id, XChaCha20-Poly1305 and the code around them being correct.
 
 **Post-quantum becomes useful as soon as asymmetric cryptography appears.** Enrolling a
 second device wraps the vault key to its public key. That wrapped copy sits on Nextcloud
@@ -52,19 +55,49 @@ The header stays readable without the passphrase (KDF parameters, recipients) bu
 as additional data for the content cipher: modifying it makes the content fail to decrypt
 rather than allowing a silent downgrade.
 
+`formatVersion` is 1 for a vault any release can handle. As soon as the vault holds
+something an older release would mishandle, the header lists it in `features` and the
+file becomes version 2, which releases before 2.2.0 refuse as an unsupported format:
+
+- `ssh-credentials`: an OpenSSH key. Older releases do not require verification for it and
+  drop its `credProtect` level when they rewrite the vault.
+- `device-revocation`: revoked devices, a signing key chain or exposed credentials. Older
+  releases would drop them on rewrite and let a revoked device back in.
+
+A reader refuses a version 2 file listing a feature it does not know.
+
 ### Recipients
 
 The vault master key (VMK) encrypts the content exactly once; each recipient holds its own
 wrapped copy. That is what allows a device to be enrolled **without giving it the
 passphrase**.
 
-Dropping a device's entry does **not** revoke it. A device that has unlocked the vault
-once holds the VMK and the signing private key, so it can still read and sign every later
-version, and the next sync restores its entry from any other copy. Revocation needs both
-keys rotated, which the format does not do yet. Until it does, a lost or sold device means
-creating a new vault and enrolling the remaining devices again (see the README). Either way
-the device keeps the passkeys it already synced and its WebDAV app password: those
-passkeys have to be replaced at each site and the app password revoked.
+A device that has unlocked the vault once holds the VMK and the signing private key, so
+dropping its recipient alone would revoke nothing. `revokeDevice` therefore rotates both,
+and needs the passphrase to do it:
+
+1. A new VMK is wrapped for the passphrase recipient (same Argon2id cost, new salt) and for
+   each remaining device recipient. The revoked device gets no copy.
+2. A new signing key pair replaces the old one. The old key signs
+   `"pqvault/signing-key-rotation/v1" | old public key | new public key`, and the link joins
+   `signingKeyChain` in the header (at most 16 links, oldest dropped).
+3. The device goes into `revokedDevices` in the content. A merge drops any device record
+   and recipient it matches, unless the same key was enrolled again afterwards.
+4. Every credential gets `exposedAt`. A merge keeps the earliest value, so no older copy
+   can clear it.
+
+A client pinned to an older key accepts the vault only through an unbroken run of links
+from its pinned key, each signed by the key it retires, and pins the new key once a sync
+has uploaded or read it. A sync whose remote copy descends from the local key takes over
+the remote keys and recipients. A local rotation not yet pushed keeps its keys and merges
+the remote content. Any other signer is refused.
+
+What rotation cannot undo: the revoked device keeps every credential it already synced and
+its WebDAV app password. The credentials are marked exposed and have to be replaced at each
+site (SSH keys removed from `authorized_keys`), and the app password revoked in Nextcloud.
+A device that has not synced since the revocation trusts the first successor of the old key
+it sees, and the revoked device holds that old key, so the other devices should sync before
+it can reach the server.
 
 - `passphrase`: Argon2id(passphrase, salt) produces a KEK that wraps the VMK
 - `device`: hybrid KEM to the device's public key
@@ -114,10 +147,20 @@ The trusted browser list is built from the installed packages, with fingerprints
 the APKs on the device. Asking a user to hand-write Google's privileged-app JSON, with
 fingerprints extracted through keytool, would guarantee nobody ever configures it.
 
-One deliberate compromise: if `assetlinks.json` is *unreachable* (offline), the request is
-allowed through. The caller's identity is still cryptographically established; only the
-site's endorsement of it could not be verified. Blocking there would leave a user with no
-network unable to use their own passkeys.
+The app's cryptographic identity and the site's authorisation of that app are separate
+guarantees, and only `assetlinks.json` gives the second one:
+
+| Statement file | Decision |
+|---|---|
+| Lists the app | Allowed |
+| Does not list it, 404 or 410, other 4xx, a redirect | Refused |
+| Malformed, empty or larger than 512 KB | Refused |
+| TLS failure | Refused |
+| Unreachable (network error, 5xx, 408, 429), association verified online in the last 7 days | Allowed, for an existing passkey only |
+| Unreachable, never verified or verified longer ago | Refused |
+
+The record of verified associations survives restarts and stores SHA-256 digests rather
+than the site and package names. An explicit refusal erases it.
 
 ## Device identity and background sync
 
@@ -128,9 +171,8 @@ through its hybrid KEM.
 
 Its private key is sealed under a Keystore key that is deliberately **not** biometric
 gated: a worker running with the screen off cannot show a fingerprint prompt. That is
-genuinely less protection than the biometric path, and there is no revocation to offset
-it yet: a device whose sync key is compromised is handled like a lost one (new vault,
-passkeys replaced, WebDAV app password revoked).
+genuinely less protection than the biometric path. A device whose sync key is compromised
+is revoked from another device like a lost one.
 
 `VaultSyncWorker` runs every 15 minutes (WorkManager's floor) under a network constraint. A
 refused remote vault returns `failure()` rather than `retry()`: it is never a transient
@@ -173,7 +215,9 @@ The transaction has five authenticated stages:
    screen-lock prompt.
 
 The tunnel is only a rendezvous relay. It receives the routing ID and ciphertext, but the
-QR secret and BLE proof never reveal the CTAP request or the passkey signature to it. Each
+QR secret and BLE proof never reveal the CTAP request or the passkey signature to it. It
+does see network metadata: both IP addresses, the tunnel and routing IDs, timing and
+message sizes. Each
 scan creates fresh traffic keys and the session expires after three minutes.
 
 An Android intent filter for `fido:` is provided for camera apps that recognise the URI.
@@ -206,6 +250,15 @@ What OpenSSH needs beyond the website flow:
   already exists. Such a request is answered "no credentials" without any prompt and
   never produces a signature.
 
+The client data hash says nothing about the operation, so the Linux provider also sends
+the bytes OpenSSH asked to sign in a `pqvault-ssh-context` getAssertion extension, which
+never produces an output. The phone reads the operation from them only when their SHA-256
+is the client data hash: a login and its user (`SSH_MSG_USERAUTH_REQUEST`), the server
+host key of a `publickey-hostbound-v00@openssh.com` request, or an `SSHSIG` signature and
+its namespace. Anything else is shown as unidentified. The server's name is never in the
+signed data. The provider adds the command it was started by (`ssh` and its destination,
+or only the program name), which the phone shows apart as not verified.
+
 The rules live in `RemoteRequestPolicy`, in the `vault` module, so the app and the JVM
 tests run the same code:
 
@@ -232,7 +285,10 @@ verification explicitly.
 `libpqvault-sk.so` through `SecurityKeyProvider` (sk-api 10, OpenSSH 9.1 and later). The
 library is deliberately thin: it starts the helper for each request, passes OpenSSH's
 arguments over a socket pair and copies the answer back into OpenSSH's structures. It
-parses nothing beyond bounded length-prefixed fields.
+parses nothing beyond bounded length-prefixed fields. It does not rely on the helper's own
+timeouts either: every exchange has a 180-second deadline on the monotonic clock, waited on
+with `poll`, after which the helper gets `SIGTERM`, then `SIGKILL` two seconds later, and is
+always reaped.
 
 The helper runs the computer's side of the hybrid transport: it shows the `FIDO:/` code on
 the terminal, scans BlueZ over D-Bus for the advert, opens the tunnel, runs the Noise

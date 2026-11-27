@@ -39,6 +39,20 @@ class ProviderClientDataTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val repository = VaultRepository.get(context)
     private val challenge = "c2lnbi1pbi1jaGFsbGVuZ2U"
+
+    // Never resolves, so the statement file is always unreachable and only the
+    // association recorded below lets the app through.
+    private val rpId = "passkeys.example.invalid"
+    private val verified = AssetLinksValidator.VerifiedAssociations.Persistent(context)
+    private val signing = context.packageManager
+        .getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        .signingInfo!!
+    private val stranger = CallingAppInfo("com.example.stranger", signing)
+    private val associations by lazy {
+        val caller = androidx.credentials.provider.CallingAppInfo(stranger.packageName, signing)
+        (CallerVerifier(null).verify(caller) as CallerVerifier.Result.Trusted).certificateFingerprintsHex
+            .map { AssetLinksValidator.association(rpId, stranger.packageName, it) }
+    }
     private var created = false
     private lateinit var credentialId: String
 
@@ -49,8 +63,8 @@ class ProviderClientDataTest {
         repository.create("correct horse battery staple".toCharArray())
         created = true
         val registration = SoftwareAuthenticator().makeCredential(
-            rpId = "github.com",
-            rpName = "GitHub",
+            rpId = rpId,
+            rpName = "Example",
             userHandle = "user-handle".toByteArray(),
             userName = "simon",
             userDisplayName = "Simon",
@@ -58,11 +72,13 @@ class ProviderClientDataTest {
         )
         repository.upsert(registration.entry)
         credentialId = registration.entry.credentialId
+        associations.forEach { verified.record(it, System.currentTimeMillis()) }
     }
 
     @After
     fun deleteVault(): Unit = runBlocking {
         if (!created) return@runBlocking
+        associations.forEach(verified::forget)
         repository.lockNow()
         repository.vaultFile.delete()
     }
@@ -76,7 +92,7 @@ class ProviderClientDataTest {
             )
             putString(
                 "androidx.credentials.BUNDLE_KEY_REQUEST_JSON",
-                """{"challenge":"$challenge","rpId":"github.com"}""",
+                """{"challenge":"$challenge","rpId":"$rpId"}""",
             )
             putByteArray("androidx.credentials.BUNDLE_KEY_CLIENT_DATA_HASH", clientDataHash)
         }
@@ -91,17 +107,11 @@ class ProviderClientDataTest {
             JSONObject()
                 .put("type", "webauthn.get")
                 .put("challenge", challenge)
-                .put("origin", "https://github.com")
+                .put("origin", "https://$rpId")
                 .toString()
                 .toByteArray(),
         )
-        val signing = context.packageManager
-            .getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-            .signingInfo!!
-        val request = GetCredentialRequest(
-            CallingAppInfo("com.example.stranger", signing),
-            listOf(option(forged)),
-        )
+        val request = GetCredentialRequest(stranger, listOf(option(forged)))
         val intent = Intent(context, CredentialActivity::class.java)
             .setAction(CredentialActivity.ACTION_GET)
             .putExtra(CredentialActivity.EXTRA_CREDENTIAL_ID, credentialId)
@@ -124,5 +134,24 @@ class ProviderClientDataTest {
         // Signed over clientDataJSON built here, with the app's own origin.
         assertThat(clientData.getString("origin")).startsWith("android:apk-key-hash:")
         assertThat(clientData.getString("challenge")).isEqualTo(challenge)
+    }
+
+    @Test
+    fun anUnreachableSiteRefusesAnAppItNeverApproved() {
+        associations.forEach(verified::forget)
+        val request = GetCredentialRequest(stranger, listOf(option(AuthenticatorData.sha256("any".toByteArray()))))
+        val intent = Intent(context, CredentialActivity::class.java)
+            .setAction(CredentialActivity.ACTION_GET)
+            .putExtra(CredentialActivity.EXTRA_CREDENTIAL_ID, credentialId)
+            .putExtra(CredentialProviderService.EXTRA_GET_CREDENTIAL_REQUEST, request)
+
+        val result = ActivityScenario.launchActivityForResult<CredentialActivity>(intent).use { it.result }
+
+        assertThat(
+            result.resultData.getParcelableExtra(
+                CredentialProviderService.EXTRA_GET_CREDENTIAL_RESPONSE,
+                GetCredentialResponse::class.java,
+            ),
+        ).isNull()
     }
 }

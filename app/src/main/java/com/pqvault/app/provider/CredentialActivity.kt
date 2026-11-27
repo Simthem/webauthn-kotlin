@@ -46,7 +46,7 @@ import org.json.JSONObject
 class CredentialActivity : AppCompatActivity() {
 
     private val authenticator = SoftwareAuthenticator()
-    private val assetLinks = AssetLinksValidator.shared
+    private val assetLinks by lazy { AssetLinksValidator.shared(this) }
 
     /** Drives the inline unlock sheet; null means no prompt is showing. */
     private val unlockPrompt = MutableStateFlow<UnlockPrompt?>(null)
@@ -232,7 +232,7 @@ class CredentialActivity : AppCompatActivity() {
                 return@launch
             }
             val trusted = caller as CallerVerifier.Result.Trusted
-            if (!checkAssetLinks(trusted, entry.rpId, allowWhenUnreachable = true)) {
+            if (!checkAssetLinks(trusted, entry.rpId, allowRecentlyVerified = true)) {
                 failGet(getString(R.string.provider_not_authorised, trusted.packageName, entry.rpId))
                 return@launch
             }
@@ -350,7 +350,7 @@ class CredentialActivity : AppCompatActivity() {
                 return@launch
             }
             val trusted = caller as CallerVerifier.Result.Trusted
-            if (!checkAssetLinks(trusted, rpId, allowWhenUnreachable = false)) {
+            if (!checkAssetLinks(trusted, rpId, allowRecentlyVerified = false)) {
                 failCreate(getString(R.string.provider_not_authorised, trusted.packageName, rpId))
                 return@launch
             }
@@ -506,7 +506,7 @@ class CredentialActivity : AppCompatActivity() {
         val allowed = if (trusted.isPrivilegedBrowser) {
             ProviderRequestPolicy.originServes(trusted.origin, rpId)
         } else {
-            checkAssetLinks(trusted, rpId, allowWhenUnreachable = true)
+            checkAssetLinks(trusted, rpId, allowRecentlyVerified = true)
         }
         return if (allowed) CredentialEntries.Listing.ALLOWED else CredentialEntries.Listing.DENIED
     }
@@ -527,32 +527,26 @@ class CredentialActivity : AppCompatActivity() {
      * A browser is skipped: it has already been verified against the privileged allowlist
      * and legitimately acts for many origins.
      *
-     * [allowWhenUnreachable] is what an unfetchable statement file means, and the two
-     * directions are genuinely different. Reading an existing passkey offline must keep
-     * working: the credential was already bound to this caller, and stranding someone
-     * without their logins because a site is down is a worse outcome than the residual
-     * risk. Creating one is the opposite. Registration is inherently online, so a
-     * statement file we cannot reach is a reason to stop rather than a normal offline
-     * condition, and going ahead would mint a passkey for a caller no site has vouched
-     * for.
+     * An unreachable site lets a caller through only with [allowRecentlyVerified] and an
+     * association verified online within the grace period. Registration never uses it.
      */
     private suspend fun checkAssetLinks(
         caller: CallerVerifier.Result.Trusted,
         rpId: String,
-        allowWhenUnreachable: Boolean,
+        allowRecentlyVerified: Boolean,
     ): Boolean {
         if (caller.isPrivilegedBrowser) return true
-        var unreachable = false
+        var recentlyVerified = false
         // A rotated app is authorised under any certificate in its proven lineage, and
         // the site may list whichever one it was told about first.
         for (fingerprint in caller.certificateFingerprintsHex) {
-            when (assetLinks.validate(rpId, caller.packageName, fingerprint)) {
+            when (val result = assetLinks.validate(rpId, caller.packageName, fingerprint)) {
                 is AssetLinksValidator.Result.Allowed -> return true
-                is AssetLinksValidator.Result.Unavailable -> unreachable = true
+                is AssetLinksValidator.Result.Unavailable -> recentlyVerified = recentlyVerified || result.previouslyVerified
                 is AssetLinksValidator.Result.Denied -> Unit
             }
         }
-        return unreachable && allowWhenUnreachable
+        return recentlyVerified && allowRecentlyVerified
     }
 
     private fun failGet(reason: String) {

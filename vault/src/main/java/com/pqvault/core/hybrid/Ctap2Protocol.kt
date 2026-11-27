@@ -14,6 +14,7 @@ import co.nstant.`in`.cbor.model.UnsignedInteger
 import com.pqvault.core.format.Base64Url
 import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.ssh.OpenSshKeys
+import com.pqvault.core.ssh.SshSignedData
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 import java.io.ByteArrayOutputStream
 
@@ -32,6 +33,14 @@ object Ctap2Protocol {
 
     /** PQ Vault's own command, in the CTAP vendor range: the resident SSH keys, public parts only. */
     const val COMMAND_LIST_SSH_KEYS = 0x41
+
+    /**
+     * PQ Vault's own getAssertion extension: the bytes OpenSSH asked to sign, checked
+     * against the client data hash, and the computer's own description of the command.
+     * It never produces an output.
+     */
+    const val EXTENSION_SSH_CONTEXT = "pqvault-ssh-context"
+    private const val MAX_CALLER_LENGTH = 256
 
     const val STATUS_OK = 0x00
     const val STATUS_INVALID_COMMAND = 0x01
@@ -76,6 +85,10 @@ object Ctap2Protocol {
             val userVerification: Boolean,
             /** False for a silent probe ("up": false), which must never produce a signature. */
             val userPresence: Boolean = true,
+            /** What the computer says it signs, see [EXTENSION_SSH_CONTEXT]. Unchecked here. */
+            val signedData: ByteArray? = null,
+            /** The command the computer reports. Nothing can verify it. */
+            val declaredCaller: String? = null,
         ) : Request
 
         data object ListSshKeys : Request
@@ -211,6 +224,11 @@ object Ctap2Protocol {
         val clientDataHash = map.bytes(2) ?: throw IllegalArgumentException("missing clientDataHash")
         require(clientDataHash.size == 32) { "clientDataHash must be 32 bytes" }
         val options = map.map(5)
+        val context = map.map(4)?.item(EXTENSION_SSH_CONTEXT) as? CborMap
+        val signedData = context?.bytes("data")
+        require(signedData == null || signedData.size <= SshSignedData.MAX_SIZE) { "signed data too large" }
+        val declaredCaller = context?.text("caller")
+        require(declaredCaller == null || declaredCaller.length <= MAX_CALLER_LENGTH) { "caller too long" }
         return Request.GetAssertion(
             rpId = map.text(1)?.takeIf(String::isNotBlank)
                 ?: throw IllegalArgumentException("missing RP ID"),
@@ -218,6 +236,8 @@ object Ctap2Protocol {
             allowedCredentialIds = credentialIds(map.array(3)),
             userVerification = options?.boolean("uv") == true,
             userPresence = options?.boolean("up") != false,
+            signedData = signedData,
+            declaredCaller = declaredCaller,
         )
     }
 

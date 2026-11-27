@@ -23,7 +23,7 @@
     <string name="creating">Création...</string>
     <string name="import_vault_action">Importer un fichier .pqvault</string>
     <string name="import_vault_title">Importer un coffre</string>
-    <string name="import_vault_body">Saisissez la phrase secrète de %s. Si un coffre est déjà ouvert, ses passkeys sont fusionnées en sécurité ; elles ne sont jamais écrasées aveuglément.</string>
+    <string name="import_vault_body">Saisissez la phrase secrète de %s. Si un coffre est déjà ouvert, ses passkeys sont fusionnées en sécurité, jamais écrasées aveuglément.</string>
     <string name="import_vault_confirm">Importer les passkeys</string>
 
     <!-- Unlock -->
@@ -75,7 +75,7 @@
     <string name="section_device_security">Cet appareil</string>
     <string name="biometric_unlock">Déverrouillage biométrique</string>
     <string name="biometric_unavailable">Indisponible sur cet appareil</string>
-    <string name="biometric_explainer">Raccourci local ; la phrase secrète reste indispensable</string>
+    <string name="biometric_explainer">Raccourci local, la phrase secrète reste indispensable</string>
     <string name="section_background_sync">Synchronisation en arrière-plan</string>
     <string name="device_enrolled">Cet appareil est enrôlé : il peut fusionner le coffre sans votre phrase secrète, toutes les 15 minutes.</string>
     <string name="device_not_enrolled">Cet appareil n\'est pas encore enrôlé comme destinataire du coffre. Sans cela, aucune synchronisation automatique n\'est possible.</string>
@@ -153,10 +153,19 @@
     <string name="hybrid_ssh_create_explanation">L\'ordinateur enregistre une nouvelle clé de sécurité OpenSSH. La clé privée reste dans votre coffre, et chaque utilisation demande votre empreinte ou le verrouillage de l\'écran.</string>
     <string name="hybrid_ssh_create_action">Créer la clé SSH</string>
     <string name="hybrid_ssh_sign_question">Autoriser une connexion SSH ?</string>
-    <string name="hybrid_ssh_sign_explanation">N\'approuvez que si l\'ordinateur affiche la même clé et que vous êtes à l\'origine de cette connexion.</string>
+    <string name="hybrid_ssh_sign_explanation">N\'approuvez que si l\'ordinateur affiche la même clé et que vous êtes à l\'origine de cette opération. La clé d\'hôte du serveur, quand elle est affichée, est vérifiée dans ce qui est signé. Comparez-la avec celle que ssh a acceptée.</string>
     <string name="hybrid_ssh_application">Application : %s</string>
     <string name="hybrid_ssh_key_type">Type de clé : %s</string>
     <string name="hybrid_ssh_key">Clé : %1$s %2$s</string>
+    <string name="hybrid_ssh_signature_question">Autoriser une signature SSH ?</string>
+    <string name="hybrid_ssh_checked_heading">Lu dans les données à signer</string>
+    <string name="hybrid_ssh_operation_login">Connexion SSH en tant que %s</string>
+    <string name="hybrid_ssh_operation_git">Signature Git (espace de noms git)</string>
+    <string name="hybrid_ssh_operation_signature">Signature pour l\'espace de noms %s</string>
+    <string name="hybrid_ssh_operation_unknown">Opération non identifiée : l\'ordinateur n\'a pas transmis ce qu\'il signe</string>
+    <string name="hybrid_ssh_server_host_key">Clé d\'hôte du serveur : %s</string>
+    <string name="hybrid_ssh_server_unbound">Cette demande ne désigne pas le serveur.</string>
+    <string name="hybrid_ssh_declared_caller">L\'ordinateur indique la commande %s. Ce n\'est pas vérifié.</string>
     <string name="hybrid_ssh_sign_action">Approuver la connexion SSH</string>
     <string name="hybrid_ssh_uv_unavailable">Les clés SSH exigent un verrouillage d\'écran sécurisé sur ce téléphone. Rien n\'a été signé.</string>
     <string name="hybrid_ssh_key_exists">Cette clé SSH est déjà dans votre coffre.</string>
@@ -252,7 +261,7 @@
 
     <!-- Reprise après un coffre distant refusé -->
     <string name="security_alert_title">Coffre distant refusé</string>
-    <string name="security_alert_rollback_help">Si vous venez de restaurer le serveur depuis une sauvegarde, c\'est normal. Accepter prend la version du serveur comme nouvelle référence ; vos passkeys locales sont fusionnées, pas remplacées.</string>
+    <string name="security_alert_rollback_help">Si vous venez de restaurer le serveur depuis une sauvegarde, c\'est normal. Accepter prend la version du serveur comme nouvelle référence. Vos passkeys locales sont fusionnées, pas remplacées.</string>
     <string name="security_alert_accept">Accepter la version du serveur</string>
     <string name="security_alert_accepted">Version du serveur acceptée. Relancez la synchro pour fusionner.</string>
     <string name="dismiss">Fermer</string>
@@ -286,7 +295,7 @@
     <string name="pairing_code_too_large">Ce code d\'appairage est trop long pour tenir dans un QR code. Raccourcissez l\'adresse WebDAV puis réessayez.</string>
     <string name="onboarding_scan_pairing">Scanner un code d\'appairage</string>
     <string name="restore_title">Récupérer le coffre partagé</string>
-    <string name="restore_body">Cet appareil est appairé à un serveur qui contient déjà un coffre. Saisissez sa phrase secrète pour le récupérer ; vos passkeys sont fusionnées et l\'appareil s\'inscrit pour la synchro en arrière-plan.</string>
+    <string name="restore_body">Cet appareil est appairé à un serveur qui contient déjà un coffre. Saisissez sa phrase secrète pour le récupérer. Vos passkeys sont fusionnées et l\'appareil s\'inscrit pour la synchro en arrière-plan.</string>
     <string name="restore_action">Récupérer le coffre</string>
     <string name="restore_or_create">Ou créez un nouveau coffre distinct ci-dessous. À ne faire que si le serveur n\'en contient pas encore.</string>
     <string name="restore_success">Coffre récupéré et appareil inscrit.</string>
@@ -299,4 +308,17 @@
     <string name="auto_lock_explainer">Un coffre déverrouillé est gardé en mémoire. Fermer l\'application ne suffit pas : Android peut garder le processus vivant des heures, et le fournisseur de passkeys peut ouvrir le coffre sans qu\'aucun écran ne soit affiché.</string>
     <string name="auto_lock_never">Jamais</string>
     <string name="auto_lock_minutes">%d min</string>
+    <string name="section_devices">Appareils enrôlés</string>
+    <string name="device_this_one">%s (cet appareil)</string>
+    <string name="device_revoke">Révoquer</string>
+    <string name="device_revoke_title">Révoquer %s ?</string>
+    <string name="device_revoke_explainer">Les deux clés du coffre sont remplacées et les nouvelles ne sont remises qu\'aux appareils restants. L\'appareil révoqué garde les identifiants déjà synchronisés : chacun est marqué exposé et doit être remplacé sur son site, et les clés SSH retirées d\'authorized_keys. Révoquez aussi son mot de passe d\'application WebDAV dans Nextcloud. Le déverrouillage biométrique devra être réactivé ensuite.</string>
+    <string name="device_revoked_pending">Le serveur n\'est pas encore à jour : synchronisez avant l\'appareil révoqué.</string>
+    <string name="device_revoke_self">Cet appareil ne peut pas se révoquer lui-même. Révoquez-le depuis un autre appareil.</string>
+    <string name="credential_exposed_badge">Exposé, à remplacer</string>
+    <plurals name="device_revoked">
+        <item quantity="one">Appareil révoqué. %d identifiant lui était accessible et doit être remplacé.</item>
+        <item quantity="many">Appareil révoqué. %d identifiants lui étaient accessibles et doivent être remplacés.</item>
+        <item quantity="other">Appareil révoqué. %d identifiants lui étaient accessibles et doivent être remplacés.</item>
+    </plurals>
 </resources>

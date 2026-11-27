@@ -35,8 +35,29 @@
   so the server also refuses a signature made without verification, including
   one made by an older release on another device.
 
+- Real device revocation, under *Settings > Enrolled devices*. With the
+  passphrase, it replaces the vault master key and the vault signing key, wraps
+  the new master key for the passphrase and the remaining devices only, and
+  signs the new signing key with the old one so the other devices accept it on
+  their next sync. The revoked device stays out of every later merge, and every
+  credential it could read is marked **Exposed, replace it**.
+- The vault header lists the features a reader must understand (`ssh-credentials`,
+  `device-revocation`). Such a file is format version 2, which earlier releases
+  refuse instead of rewriting it without the newer rules.
+- The SSH approval screen names the operation, read from the data being signed
+  and checked against its hash: an SSH login and its user, the server host key
+  of a host-bound request, or a signature and its namespace (`git`). The
+  command the computer reports is shown apart, marked as not verified.
+
 ### Security
 
+- Digital Asset Links fail closed. A TLS failure, a redirect, an error status or
+  a malformed statement file refuses the app. An unreachable site lets an
+  existing passkey through only if the same association was verified online in
+  the last seven days, and never for a new one.
+- The Linux provider library has its own deadline (180 seconds, monotonic
+  clock, `poll`) around the helper, then stops it with `SIGTERM` and `SIGKILL`,
+  so a stuck helper cannot hang `ssh`.
 - SSH keys and website passkeys are kept apart: the Credential Manager provider
   refuses `ssh:` applications explicitly, and a website passkey never answers an
   SSH request.
@@ -59,9 +80,12 @@
 
 ### Release notes
 
-- Update every device that opens the vault before creating SSH keys. Earlier
-  releases cannot sign with Ed25519, do not require verification for SSH keys,
-  and drop the stored `credProtect` level when they rewrite the vault.
+- Update every device that opens the vault before creating SSH keys or revoking
+  a device. Earlier releases cannot sign with Ed25519 and do not require
+  verification for SSH keys. They now refuse such a vault as an unsupported
+  format rather than rewriting it.
+- Biometric unlock has to be turned on again after a revocation, on every
+  device: the old wrap holds the retired vault key.
 
 ## [2.1.9](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.8...v2.1.9) (2026-11-22)
 

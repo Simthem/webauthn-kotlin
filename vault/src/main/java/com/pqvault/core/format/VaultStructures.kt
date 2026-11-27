@@ -2,6 +2,7 @@ package com.pqvault.core.format
 
 import com.pqvault.core.model.DeviceRecord
 import com.pqvault.core.model.PasskeyEntry
+import com.pqvault.core.model.RevokedDevice
 import com.pqvault.core.model.Tombstone
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -21,8 +22,8 @@ data class KdfParams(
  *
  * The VMK encrypts the vault content exactly once; each recipient holds its own wrapped
  * copy. That indirection is what lets a second device be enrolled without ever learning
- * the passphrase, and lets a device be revoked by simply dropping its recipient and
- * rotating the VMK.
+ * the passphrase, and lets a device be revoked by rotating the VMK and wrapping the new
+ * one for the remaining recipients only.
  */
 @Serializable
 sealed class Recipient {
@@ -65,9 +66,28 @@ sealed class Recipient {
  * additional data, so tampering with a recipient list or a KDF cost makes the content
  * fail to decrypt rather than silently downgrading us.
  */
+/**
+ * One signing key rotation: [nextKey] replaces [previousKey], which signed the change. A
+ * client pinned to an older key follows these links to the current one.
+ */
+@Serializable
+data class SigningKeyLink(
+    /** base64url hybrid public key. */
+    val previousKey: String,
+    /** base64url hybrid public key. */
+    val nextKey: String,
+    /** base64url hybrid signature by [previousKey]. */
+    val signature: String,
+)
+
 @Serializable
 data class VaultHeader(
     val formatVersion: Int = VaultFile.FORMAT_VERSION,
+    /**
+     * What a reader must understand to handle this vault safely. Any feature moves the
+     * file to [VaultFile.FEATURES_FORMAT_VERSION], which releases that predate it refuse.
+     */
+    val features: List<String> = emptyList(),
     /**
      * Monotonic counter, incremented on every save. A WebDAV server that replays an
      * older-but-genuine vault would otherwise be undetectable, since old versions
@@ -80,6 +100,8 @@ data class VaultHeader(
     /** base64url hybrid Ed25519+ML-DSA-65 public key; pinned by clients on first open. */
     val signingPublicKey: String,
     val recipients: List<Recipient>,
+    /** Oldest first, the last link ending at [signingPublicKey]. */
+    val signingKeyChain: List<SigningKeyLink> = emptyList(),
 )
 
 /** The encrypted part of the file. */
@@ -88,6 +110,7 @@ data class VaultContent(
     val entries: List<PasskeyEntry> = emptyList(),
     val tombstones: List<Tombstone> = emptyList(),
     val devices: List<DeviceRecord> = emptyList(),
+    val revokedDevices: List<RevokedDevice> = emptyList(),
     /**
      * base64url Ed25519 private key + base64url ML-DSA-65 seed, joined by ':'.
      * Kept inside the ciphertext so that any device able to open the vault can sign the

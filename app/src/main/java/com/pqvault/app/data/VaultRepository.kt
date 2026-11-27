@@ -5,11 +5,13 @@ import android.os.SystemClock
 import android.util.AtomicFile
 import com.pqvault.app.R
 import com.pqvault.app.notify.SyncNotifications
+import com.pqvault.app.security.BiometricVaultLock
 import com.pqvault.app.sync.OkHttpWebDavClient
 import com.pqvault.core.UnlockedVault
 import com.pqvault.core.Vault
 import com.pqvault.core.format.Base64Url
 import com.pqvault.core.format.VaultFile
+import com.pqvault.core.model.DeviceRecord
 import com.pqvault.core.model.PasskeyEntry
 import com.pqvault.core.sync.VaultSyncEngine
 import com.pqvault.core.sync.WebDavClient
@@ -88,6 +90,15 @@ class VaultRepository private constructor(private val context: Context) {
         object AlreadyInitialised : RestoreOutcome()
         class Untrusted(val reason: String) : RestoreOutcome()
         class Failed(val message: String) : RestoreOutcome()
+    }
+
+    sealed class RevokeOutcome {
+        /** [exposed] credentials must be replaced. [pushed] is false until a sync uploads it. */
+        class Success(val exposed: Int, val pushed: Boolean) : RevokeOutcome()
+        object WrongPassphrase : RevokeOutcome()
+        object Locked : RevokeOutcome()
+        object ThisDevice : RevokeOutcome()
+        class Failed(val message: String) : RevokeOutcome()
     }
 
     sealed class ImportOutcome {
@@ -535,6 +546,37 @@ class VaultRepository private constructor(private val context: Context) {
      */
     fun enrolledDeviceIds(): Set<String> = unlocked?.devices?.mapTo(HashSet()) { it.deviceId }.orEmpty()
 
+    /** The enrolled devices, for the same callers as [enrolledDeviceIds]. */
+    fun enrolledDevices(): List<DeviceRecord> = unlocked?.devices?.toList().orEmpty()
+
+    /**
+     * Revokes another device: both vault keys are rotated, so the copy it holds opens
+     * nothing written from now on, and the result is pushed straight away when a server
+     * is configured. A failed push stays pending and goes out with the next sync.
+     */
+    suspend fun revokeDevice(deviceId: String, passphrase: CharArray): RevokeOutcome = mutex.withLock {
+        val vault = unlocked ?: return RevokeOutcome.Locked
+        if (deviceIdentity.exists() && runCatching { deviceIdentity.loadOrCreate().deviceId }.getOrNull() == deviceId) {
+            return RevokeOutcome.ThisDevice
+        }
+        val configured = settings.load().webdavBaseUrl.isNotEmpty()
+        // Rotating from the server's latest copy avoids racing a revocation made elsewhere.
+        if (configured) syncLocked(vault, passphrase)
+        val bytes = try {
+            vault.serializeChange { if (!revokeDevice(deviceId, passphrase)) throw PassphraseRefused() }
+        } catch (_: PassphraseRefused) {
+            return RevokeOutcome.WrongPassphrase
+        } catch (failure: Exception) {
+            return RevokeOutcome.Failed(failure.message ?: "revocation failed")
+        }
+        writeVaultAtomically(bytes)
+        rememberVersion(vault)
+        // The biometric wrap holds the retired vault key.
+        BiometricVaultLock(context).clearEnrollment()
+        val pushed = configured && syncLocked(vault, passphrase) is VaultSyncEngine.Outcome.Written
+        RevokeOutcome.Success(vault.exposedEntries().size, pushed)
+    }
+
     /**
      * This device's id, or null without a readable identity. It decrypts through the
      * Keystore and decodes an ML-KEM key on the way, which is no work for the main thread.
@@ -629,7 +671,7 @@ class VaultRepository private constructor(private val context: Context) {
             lastSyncEtag = current.lastSyncEtag.takeIf { it.isNotEmpty() },
             lastSeenVersion = current.lastSeenVersion,
         )
-        reportOutcome(outcome, localVault.entries.size)
+        reportOutcome(outcome, localVault)
 
         if (outcome is VaultSyncEngine.Outcome.Written) {
             // The file on disk is now the merged version, which makes any vault already
@@ -659,6 +701,10 @@ class VaultRepository private constructor(private val context: Context) {
      */
     suspend fun sync(passphrase: CharArray): VaultSyncEngine.Outcome = mutex.withLock {
         val vault = unlocked ?: return failure(R.string.vault_locked_error)
+        syncLocked(vault, passphrase)
+    }
+
+    private suspend fun syncLocked(vault: UnlockedVault, passphrase: CharArray): VaultSyncEngine.Outcome {
         val current = settings.load()
         if (current.webdavBaseUrl.isEmpty()) {
             return failure(R.string.no_webdav_configured, permanent = true)
@@ -681,8 +727,8 @@ class VaultRepository private constructor(private val context: Context) {
             lastSeenVersion = current.lastSeenVersion,
         )
 
-        reportOutcome(outcome, vault.entries.size)
-        outcome
+        reportOutcome(outcome, vault)
+        return outcome
     }
 
     /**
@@ -695,7 +741,8 @@ class VaultRepository private constructor(private val context: Context) {
         current: SecureSettings.Settings,
         signingPublicKey: ByteArray,
     ): Boolean {
-        if (current.pinnedSigningKeyDigest.isEmpty()) return true
+        // Once a key is pinned it is the stronger check, and it follows key rotations.
+        if (current.pinnedSigningKeyDigest.isEmpty() || current.pinnedSigningKey.isNotEmpty()) return true
         val actual = Base64Url.encode(
             java.security.MessageDigest.getInstance("SHA-256").digest(signingPublicKey),
         )
@@ -707,16 +754,14 @@ class VaultRepository private constructor(private val context: Context) {
         permanent = permanent,
     )
 
-    private fun reportOutcome(outcome: VaultSyncEngine.Outcome, entryCount: Int) {
+    private fun reportOutcome(outcome: VaultSyncEngine.Outcome, vault: UnlockedVault) {
+        val entryCount = vault.entries.size
+        if (outcome is VaultSyncEngine.Outcome.Written) persistAfterSync(outcome, vault.signingPublicKeyEncoded)
         when (outcome) {
             is VaultSyncEngine.Outcome.Created,
             is VaultSyncEngine.Outcome.Pushed,
-            -> {
-                persistAfterSync(outcome as VaultSyncEngine.Outcome.Written)
-                notifications.syncSucceeded(entryCount, merged = false)
-            }
+            -> notifications.syncSucceeded(entryCount, merged = false)
             is VaultSyncEngine.Outcome.Merged -> {
-                persistAfterSync(outcome)
                 notifications.syncSucceeded(entryCount, merged = true)
                 notifications.conflictsResolved(outcome.conflicts)
             }
@@ -729,18 +774,25 @@ class VaultRepository private constructor(private val context: Context) {
         }
     }
 
-    private fun persistAfterSync(written: VaultSyncEngine.Outcome.Written) {
+    private fun persistAfterSync(written: VaultSyncEngine.Outcome.Written, signingKey: ByteArray) {
         // Store the exact bytes that were uploaded. Re-serialising here would bump the
         // version again and leave the local file ahead of the server, which the next
         // sync would correctly report as a rollback.
         writeVaultAtomically(written.bytes)
+        // The key is pinned only once the server holds it, so a rotation still waiting to
+        // be pushed can merge with the copy it replaces.
+        val key = Base64Url.encode(signingKey)
+        val rotated = settings.load().pinnedSigningKey.let { it.isNotEmpty() && it != key }
         settings.update {
             it.copy(
+                pinnedSigningKey = key,
+                pinnedSigningKeyDigest = if (rotated) "" else it.pinnedSigningKeyDigest,
                 lastSyncEtag = written.etag.orEmpty(),
                 lastSeenVersion = written.version,
                 localVersion = written.version,
             )
         }
+        if (rotated) BiometricVaultLock(context).clearEnrollment()
     }
 
     /**
@@ -767,6 +819,8 @@ class VaultRepository private constructor(private val context: Context) {
      */
     private val SecureSettings.Settings.localWatermark: Long
         get() = maxOf(localVersion, lastSeenVersion)
+
+    private class PassphraseRefused : Exception()
 
     companion object {
         /**

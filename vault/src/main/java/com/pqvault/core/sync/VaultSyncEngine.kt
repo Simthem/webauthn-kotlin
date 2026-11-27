@@ -164,6 +164,16 @@ class VaultSyncEngine(
                         -> return Outcome.RemoteUnreadable
                     }
 
+                    // A device revoked elsewhere rotated both keys: this copy takes them over.
+                    // A copy whose keys this one replaced keeps its content merged in, never
+                    // its keys. Any other signer is not part of this vault's history.
+                    val sameKeys = remoteVault.signingPublicKeyEncoded.contentEquals(local.signingPublicKeyEncoded)
+                    val adoptRemoteKeys = !sameKeys && remoteVault.succeeds(local.signingPublicKeyEncoded)
+                    if (!sameKeys && !adoptRemoteKeys && !local.succeeds(remoteVault.signingPublicKeyEncoded)) {
+                        remoteVault.close()
+                        return Outcome.RemoteUntrusted(Outcome.Untrusted.UnknownSigner)
+                    }
+
                     val merge = VaultMerge.merge(
                         localEntries = local.entries,
                         localTombstones = local.tombstones,
@@ -171,11 +181,14 @@ class VaultSyncEngine(
                         remoteEntries = remoteVault.entries,
                         remoteTombstones = remoteVault.tombstones,
                         remoteDevices = remoteVault.devices,
+                        localRevoked = local.revokedDevices,
+                        remoteRevoked = remoteVault.revokedDevices,
                     )
                     var hadRemoteChanges = false
                     val bytes = try {
                         local.serializeChange {
-                            hadRemoteChanges = applyMerge(merge)
+                            if (adoptRemoteKeys) adoptKeys(remoteVault)
+                            hadRemoteChanges = applyMerge(merge) || adoptRemoteKeys
                             mergeRecipients(remoteVault)
                             // The pushed version must exceed the one already on the server,
                             // or the next device to read it would correctly diagnose a

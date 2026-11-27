@@ -25,7 +25,7 @@
     <string name="creating">Creating...</string>
     <string name="import_vault_action">Import a .pqvault file</string>
     <string name="import_vault_title">Import a vault</string>
-    <string name="import_vault_body">Enter the passphrase for %s. If a vault is already open, its passkeys are safely merged; they are never blindly overwritten.</string>
+    <string name="import_vault_body">Enter the passphrase for %s. If a vault is already open, its passkeys are safely merged, never blindly overwritten.</string>
     <string name="import_vault_confirm">Import passkeys</string>
 
     <!-- Unlock -->
@@ -75,7 +75,7 @@
     <string name="section_device_security">This device</string>
     <string name="biometric_unlock">Biometric unlock</string>
     <string name="biometric_unavailable">Not available on this device</string>
-    <string name="biometric_explainer">Local shortcut only; the passphrase remains required</string>
+    <string name="biometric_explainer">Local shortcut only, the passphrase remains required</string>
     <string name="section_background_sync">Background sync</string>
     <string name="device_enrolled">This device is enrolled: it can merge the vault without your passphrase, every 15 minutes.</string>
     <string name="device_not_enrolled">This device is not yet enrolled as a vault recipient. Without that, no automatic sync is possible.</string>
@@ -153,10 +153,19 @@
     <string name="hybrid_ssh_create_explanation">The computer is enrolling a new OpenSSH security key. The private key stays in your vault, and every use of it asks for your fingerprint or screen lock.</string>
     <string name="hybrid_ssh_create_action">Create SSH key</string>
     <string name="hybrid_ssh_sign_question">Allow an SSH login?</string>
-    <string name="hybrid_ssh_sign_explanation">Approve only if the computer shows the same key and you started this connection.</string>
+    <string name="hybrid_ssh_sign_explanation">Approve only if the computer shows the same key and you started this operation. The server host key, when shown, is checked against what is signed. Compare it with the one ssh accepted.</string>
     <string name="hybrid_ssh_application">Application: %s</string>
     <string name="hybrid_ssh_key_type">Key type: %s</string>
     <string name="hybrid_ssh_key">Key: %1$s %2$s</string>
+    <string name="hybrid_ssh_signature_question">Allow an SSH signature?</string>
+    <string name="hybrid_ssh_checked_heading">Read from the data being signed</string>
+    <string name="hybrid_ssh_operation_login">SSH login as %s</string>
+    <string name="hybrid_ssh_operation_git">Git signature (namespace git)</string>
+    <string name="hybrid_ssh_operation_signature">Signature for the namespace %s</string>
+    <string name="hybrid_ssh_operation_unknown">Unidentified operation: the computer did not send what it signs</string>
+    <string name="hybrid_ssh_server_host_key">Server host key: %s</string>
+    <string name="hybrid_ssh_server_unbound">This request does not name the server.</string>
+    <string name="hybrid_ssh_declared_caller">The computer reports the command %s. This is not verified.</string>
     <string name="hybrid_ssh_sign_action">Approve SSH login</string>
     <string name="hybrid_ssh_uv_unavailable">SSH keys need a secure screen lock on this phone. Nothing was signed.</string>
     <string name="hybrid_ssh_key_exists">This SSH key is already in your vault.</string>
@@ -234,7 +243,7 @@
     <string name="provider_bad_request">Incomplete request.</string>
     <string name="provider_no_algorithm">No algorithm in common with the site.</string>
 
-    <!-- Sync verdicts. The engine reports facts; these are the words. -->
+    <!-- Sync verdicts. The engine reports facts, these are the words. -->
     <!-- Both numbers are vault version numbers, not counts of anything. -->
     <string name="sync_untrusted_rollback" tools:ignore="PluralsCandidate">The server returned version %1$d, older than version %2$d which this device has already accepted. Nothing was uploaded.</string>
     <string name="sync_untrusted_signature">The remote vault\'s signature is invalid.</string>
@@ -251,7 +260,7 @@
 
     <!-- Recovering from a refused remote vault -->
     <string name="security_alert_title">Remote vault refused</string>
-    <string name="security_alert_rollback_help">If you have just restored the server from a backup, this is expected. Accepting takes the server\'s version as the new reference; your local passkeys are merged, not replaced.</string>
+    <string name="security_alert_rollback_help">If you have just restored the server from a backup, this is expected. Accepting takes the server\'s version as the new reference. Your local passkeys are merged, not replaced.</string>
     <string name="security_alert_accept">Accept the server version</string>
     <string name="security_alert_accepted">Server version accepted. Sync again to merge.</string>
     <string name="dismiss">Dismiss</string>
@@ -285,7 +294,7 @@
     <string name="pairing_code_too_large">This pairing code is too long to fit in a QR code. Shorten the WebDAV address and try again.</string>
     <string name="onboarding_scan_pairing">Scan a pairing code</string>
     <string name="restore_title">Restore the shared vault</string>
-    <string name="restore_body">This device is paired to a server that already holds a vault. Enter its passphrase to bring it down; your passkeys are merged, and this device enrols itself for background sync.</string>
+    <string name="restore_body">This device is paired to a server that already holds a vault. Enter its passphrase to bring it down. Your passkeys are merged, and this device enrols itself for background sync.</string>
     <string name="restore_action">Restore the vault</string>
     <string name="restore_or_create">Or create a separate new vault below. Only do this if the server does not hold one yet.</string>
     <string name="restore_success">Vault restored and this device enrolled.</string>
@@ -298,4 +307,16 @@
     <string name="auto_lock_explainer">An unlocked vault is held in memory. Closing the app is not enough on its own: Android can keep the process alive for hours, and the passkey provider can open the vault with no screen showing at all.</string>
     <string name="auto_lock_never">Never</string>
     <string name="auto_lock_minutes">%d min</string>
+    <string name="section_devices">Enrolled devices</string>
+    <string name="device_this_one">%s (this device)</string>
+    <string name="device_revoke">Revoke</string>
+    <string name="device_revoke_title">Revoke %s?</string>
+    <string name="device_revoke_explainer">Both vault keys are replaced and the new ones are given to the remaining devices only. The revoked device keeps the credentials it already synced: each one is marked exposed and has to be replaced at its site, and SSH keys removed from authorized_keys. Revoke its WebDAV app password in Nextcloud too. Biometric unlock has to be turned on again afterwards.</string>
+    <string name="device_revoked_pending">The server is not updated yet: sync before the revoked device does.</string>
+    <string name="device_revoke_self">This device cannot revoke itself. Revoke it from another device.</string>
+    <string name="credential_exposed_badge">Exposed, replace it</string>
+    <plurals name="device_revoked">
+        <item quantity="one">Device revoked. %d credential was exposed to it and has to be replaced.</item>
+        <item quantity="other">Device revoked. %d credentials were exposed to it and have to be replaced.</item>
+    </plurals>
 </resources>

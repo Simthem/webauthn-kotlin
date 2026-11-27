@@ -17,6 +17,12 @@ kotlin {
     }
 }
 
+// The weak SecureRandom this check is about is Android 4.3 and older. The app needs API 30,
+// which a JVM module cannot tell lint.
+lint {
+    disable "TrulyRandom"
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.release = jvmTargetIntermediate as int
 }

@@ -7,10 +7,15 @@ import com.pqvault.core.hybrid.Ctap2Protocol
 import com.pqvault.core.hybrid.HybridCrypto
 import com.pqvault.core.model.CoseAlgorithm
 import com.pqvault.core.ssh.OpenSshKeys
+import com.pqvault.core.ssh.SshSignedData
 import java.io.ByteArrayOutputStream
 
 /** OpenSSH enrolments and signatures carried out by the phone, always with user verification. */
-class SshAuthenticator(private val client: HybridClient, private val prompt: Prompt) {
+class SshAuthenticator(
+    private val client: HybridClient,
+    private val prompt: Prompt,
+    private val caller: () -> String? = { CallerProcess.describe() },
+) {
 
     fun handle(request: HelperProtocol.Request): HelperProtocol.Response = try {
         require(OpenSshKeys.isApplication(request.application)) { "the application must start with ssh:" }
@@ -67,7 +72,13 @@ class SshAuthenticator(private val client: HybridClient, private val prompt: Pro
         val algorithm = algorithm(request.algorithm)
         require(request.handle.isNotEmpty()) { "no key handle" }
         val response = client.exchange(
-            Ctap2Client.getAssertion(request.application, HybridCrypto.sha256(request.message), request.handle),
+            Ctap2Client.getAssertion(
+                request.application,
+                HybridCrypto.sha256(request.message),
+                request.handle,
+                signedData = request.message.takeIf { it.size <= SshSignedData.MAX_SIZE },
+                caller = caller()?.take(MAX_CALLER_LENGTH),
+            ),
             HybridClient.Purpose.SignIn,
         )
         val assertion = Ctap2Client.parseAssertion(response, request.application, request.handle)
@@ -131,5 +142,6 @@ class SshAuthenticator(private val client: HybridClient, private val prompt: Pro
     private companion object {
         /** OpenSSH's user ID field: 32 bytes, the given value then zeros. */
         const val USER_ID_SIZE = 32
+        const val MAX_CALLER_LENGTH = 256
     }
 }

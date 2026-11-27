@@ -67,6 +67,8 @@ tasks.register("installHelper", Sync) {
         from configurations.runtimeClasspath
     }
     into("runtime") { from helperRuntime }
+    // jlink writes its legal notices read-only, so they cannot be synced over: start afresh.
+    doFirst { delete(destinationDir) }
 }
 
 tasks.named("test") {

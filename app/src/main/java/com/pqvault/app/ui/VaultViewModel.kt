@@ -63,6 +63,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val ssh: Boolean get() = RemoteRequestPolicy.isSsh(request)
     }
 
+    data class DeviceRow(val deviceId: String, val label: String, val isThisDevice: Boolean)
+
     data class UiState(
         val screen: Screen = Screen.Loading,
         val entries: List<PasskeyEntry> = emptyList(),
@@ -81,6 +83,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val biometricsAvailable: Boolean = false,
         val biometricsEnrolled: Boolean = false,
         val deviceEnrolled: Boolean = false,
+        val devices: List<DeviceRow> = emptyList(),
         val browsers: List<InstalledBrowsers.Browser> = emptyList(),
         val trustedBrowsers: Set<String> = emptySet(),
         val overlay: Overlay = Overlay.None,
@@ -156,6 +159,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private fun refresh() {
         val initialised = repository.isInitialised
         val enrolledDevices = repository.enrolledDeviceIds()
+        val deviceRecords = repository.enrolledDevices()
         _state.update {
             it.copy(
                 screen = when {
@@ -175,7 +179,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     settings = settings,
                     biometricsAvailable = biometrics.isAvailable(),
                     biometricsEnrolled = biometrics.isEnrolled(),
-                    deviceEnrolled = repository.thisDeviceId()?.let { id -> id in enrolledDevices } ?: false,
+                    thisDeviceId = repository.thisDeviceId(),
                     browsers = InstalledBrowsers.detect(getApplication()),
                     trustedBrowsers = InstalledBrowsers.packagesIn(settings.privilegedBrowserAllowlist),
                 )
@@ -185,7 +189,10 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     settings = environment.settings,
                     biometricsAvailable = environment.biometricsAvailable,
                     biometricsEnrolled = environment.biometricsEnrolled,
-                    deviceEnrolled = environment.deviceEnrolled,
+                    deviceEnrolled = environment.thisDeviceId?.let { id -> id in enrolledDevices } ?: false,
+                    devices = deviceRecords.map { record ->
+                        DeviceRow(record.deviceId, record.label, record.deviceId == environment.thisDeviceId)
+                    },
                     canRestore = !initialised && environment.settings.webdavBaseUrl.isNotBlank(),
                     browsers = environment.browsers,
                     trustedBrowsers = environment.trustedBrowsers,
@@ -198,7 +205,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val settings: SecureSettings.Settings,
         val biometricsAvailable: Boolean,
         val biometricsEnrolled: Boolean,
-        val deviceEnrolled: Boolean,
+        val thisDeviceId: String?,
         val browsers: List<InstalledBrowsers.Browser>,
         val trustedBrowsers: Set<String>,
     )
@@ -1084,6 +1091,31 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             copy(busy = false, error = string(R.string.sync_remote_unreadable))
         is VaultSyncEngine.Outcome.Failed ->
             copy(busy = false, error = describe(outcome.reason))
+    }
+
+    fun revokeDevice(deviceId: String, passphrase: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, error = null) }
+            val chars = passphrase.toCharArray()
+            val outcome = repository.revokeDevice(deviceId, chars)
+            chars.fill('\u0000')
+            _state.update {
+                when (outcome) {
+                    is VaultRepository.RevokeOutcome.Success -> it.copy(
+                        busy = false,
+                        message = plural(R.plurals.device_revoked, outcome.exposed, outcome.exposed) +
+                            if (outcome.pushed) "" else " " + string(R.string.device_revoked_pending),
+                    )
+                    VaultRepository.RevokeOutcome.WrongPassphrase ->
+                        it.copy(busy = false, error = string(R.string.wrong_passphrase))
+                    VaultRepository.RevokeOutcome.Locked -> it.copy(busy = false, error = string(R.string.unlock_first))
+                    VaultRepository.RevokeOutcome.ThisDevice ->
+                        it.copy(busy = false, error = string(R.string.device_revoke_self))
+                    is VaultRepository.RevokeOutcome.Failed -> it.copy(busy = false, error = outcome.message)
+                }
+            }
+            refresh()
+        }
     }
 
     fun enrollThisDevice() {

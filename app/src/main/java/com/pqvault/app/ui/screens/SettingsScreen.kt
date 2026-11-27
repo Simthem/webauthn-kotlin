@@ -61,6 +61,7 @@ fun SettingsScreen(
     onEnableBiometrics: () -> Unit,
     onDisableBiometrics: () -> Unit,
     onEnrollDevice: () -> Unit,
+    onRevokeDevice: (String, String) -> Unit,
     onToggleBrowser: (String, Boolean) -> Unit,
     onShowPairingCode: () -> Unit,
     onScanPairingCode: () -> Unit,
@@ -77,6 +78,43 @@ fun SettingsScreen(
     var appPassword by remember(state.settings) { mutableStateOf(state.settings.webdavAppPassword) }
     var remotePath by remember(state.settings) { mutableStateOf(state.settings.remotePath) }
     var shownDiagnostics by remember { mutableStateOf<String?>(null) }
+    var revoking by remember { mutableStateOf<VaultViewModel.DeviceRow?>(null) }
+
+    revoking?.let { device ->
+        var passphrase by remember(device) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { revoking = null },
+            title = { Text(stringResource(R.string.device_revoke_title, device.label)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(R.string.device_revoke_explainer),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    PqTextField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        label = stringResource(R.string.passphrase),
+                        isPassword = true,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRevokeDevice(device.deviceId, passphrase)
+                        revoking = null
+                    },
+                    enabled = passphrase.isNotEmpty() && !state.busy,
+                ) { Text(stringResource(R.string.device_revoke)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { revoking = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
     var diagnosticsEnabled by remember { mutableStateOf(diagnosticsAreEnabled()) }
 
     shownDiagnostics?.let { contents ->
@@ -310,6 +348,38 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = MaterialTheme.shapes.small,
                     ) { Text(stringResource(R.string.enroll_device)) }
+                }
+            }
+
+            if (state.devices.isNotEmpty()) {
+                Spacer(Modifier.height(22.dp))
+                SectionLabel(stringResource(R.string.section_devices))
+                Spacer(Modifier.height(8.dp))
+                PqCard {
+                    state.devices.forEachIndexed { index, device ->
+                        if (index > 0) HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (device.isThisDevice) {
+                                    stringResource(R.string.device_this_one, device.label)
+                                } else {
+                                    device.label
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (!device.isThisDevice) {
+                                OutlinedButton(
+                                    onClick = { revoking = device },
+                                    shape = MaterialTheme.shapes.small,
+                                    enabled = !state.busy,
+                                ) { Text(stringResource(R.string.device_revoke)) }
+                            }
+                        }
+                    }
                 }
             }
 

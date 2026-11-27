@@ -45,6 +45,8 @@ class SshKeyTest {
         allowedCredentialIds = listOf(Base64Url.decode(credentialId)),
         userVerification = true,
         userPresence = true,
+        signedData = null,
+        declaredCaller = null,
     )
 
     @Test

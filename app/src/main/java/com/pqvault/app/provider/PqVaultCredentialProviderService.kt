@@ -64,7 +64,7 @@ class PqVaultCredentialProviderService : CredentialProviderService() {
             val caller = request.callingAppInfo?.let {
                 CallerVerifier(CredentialEntries.privilegedAllowlist(this)).verify(it)
             }
-            val assetLinks = AssetLinksValidator.shared
+            val assetLinks = AssetLinksValidator.shared(this)
             callback.onResult(
                 CredentialEntries.response(this, request, repository) { rpId ->
                     CredentialEntries.listing(caller, rpId, assetLinks)

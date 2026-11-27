@@ -2,6 +2,7 @@ package com.pqvault.core.merge
 
 import com.pqvault.core.model.DeviceRecord
 import com.pqvault.core.model.PasskeyEntry
+import com.pqvault.core.model.RevokedDevice
 import com.pqvault.core.model.Tombstone
 
 /**
@@ -20,6 +21,7 @@ object VaultMerge {
         val devices: List<DeviceRecord>,
         /** Entries where both sides had changes and one was discarded; surfaced to the user. */
         val conflicts: List<Conflict>,
+        val revokedDevices: List<RevokedDevice> = emptyList(),
     )
 
     class Conflict(
@@ -35,6 +37,8 @@ object VaultMerge {
         remoteEntries: List<PasskeyEntry>,
         remoteTombstones: List<Tombstone>,
         remoteDevices: List<DeviceRecord>,
+        localRevoked: List<RevokedDevice> = emptyList(),
+        remoteRevoked: List<RevokedDevice> = emptyList(),
     ): Result {
         val tombstones = (localTombstones + remoteTombstones)
             .groupBy { it.credentialId }
@@ -69,8 +73,10 @@ object VaultMerge {
             // authenticator and may lock the credential, so it takes the maximum of both
             // sides rather than the winning record's value: both devices may have
             // signed while they were apart.
+            // Exposure is never undone by a copy that predates the revocation.
             byId[remote.credentialId] = winner.copy(
                 signCount = maxOf(local.signCount, remote.signCount),
+                exposedAt = listOfNotNull(local.exposedAt, remote.exposedAt).minOrNull(),
             )
         }
 
@@ -84,25 +90,36 @@ object VaultMerge {
         val liveIds = entries.map { it.credentialId }.toSet()
         val keptTombstones = tombstones.values.filter { it.credentialId !in liveIds }
 
+        val revoked = (localRevoked + remoteRevoked)
+            .groupBy { it.deviceId to it.kemPublicKey }
+            .map { (_, all) -> all.maxBy { it.revokedAt } }
         val devices = (localDevices + remoteDevices)
             .groupBy { it.deviceId }
             .map { (_, all) -> all.maxBy { it.enrolledAt } }
+            .filter { device ->
+                revoked.none {
+                    it.deviceId == device.deviceId && it.kemPublicKey == device.kemPublicKey &&
+                        it.revokedAt >= device.enrolledAt
+                }
+            }
 
         return Result(
             entries = entries.sortedBy { it.credentialId },
             tombstones = keptTombstones.sortedBy { it.credentialId },
             devices = devices.sortedBy { it.deviceId },
+            revokedDevices = revoked.sortedBy { it.deviceId },
             conflicts = conflicts,
         )
     }
 
     /**
-     * True when keeping [winner] loses something [loser] carried. The two fields that
-     * merge losslessly are excluded: [PasskeyEntry.signCount] is taken as the maximum of
-     * both sides, and [PasskeyEntry.updatedAt] is the timestamp that decided the winner.
+     * True when keeping [winner] loses something [loser] carried. The fields that merge
+     * losslessly are excluded: [PasskeyEntry.signCount] is taken as the maximum of both
+     * sides, [PasskeyEntry.exposedAt] as the earliest, and [PasskeyEntry.updatedAt] is the
+     * timestamp that decided the winner.
      */
     private fun discardsData(winner: PasskeyEntry, loser: PasskeyEntry): Boolean {
-        val normalise = { entry: PasskeyEntry -> entry.copy(signCount = 0, updatedAt = 0) }
+        val normalise = { entry: PasskeyEntry -> entry.copy(signCount = 0, updatedAt = 0, exposedAt = null) }
         return normalise(winner) != normalise(loser)
     }
 }

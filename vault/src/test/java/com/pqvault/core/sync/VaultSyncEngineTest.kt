@@ -426,4 +426,52 @@ class VaultSyncEngineTest {
         assertThat(remote.vault.entries.map { it.credentialId }).containsExactly("cred-A", "cred-B")
         assertThat(deviceA.entries.map { it.credentialId }).containsExactly("cred-A", "cred-B")
     }
+
+    @Test
+    fun `a device that missed a revocation takes over the rotated keys`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        val originalKey = deviceA.signingPublicKeyEncoded.copyOf()
+        val lost = HybridKem.generateKeyPair()
+        deviceA.enrollDevice("lost", "lost phone", lost.publicKey)
+        engine(server, originalKey).sync(deviceA)
+
+        deviceA.serializeChange { check(revokeDevice("lost", passphrase)) }
+        engine(server, originalKey).sync(deviceA)
+        deviceB.addOrReplace(entry("cred-B", "gitlab.com"))
+
+        val outcome = engine(server, originalKey).sync(deviceB)
+
+        assertThat(outcome).isInstanceOf(VaultSyncEngine.Outcome.Merged::class.java)
+        assertThat(deviceB.signingPublicKeyEncoded).isEqualTo(deviceA.signingPublicKeyEncoded)
+        val pushed = server.read(remotePath)!!
+        assertThat(Vault.openWithDeviceKey(pushed, "lost", lost.privateKey, lost.publicKey))
+            .isNotInstanceOf(Vault.OpenResult.Success::class.java)
+        val remote = Vault.open(pushed, passphrase, deviceA.signingPublicKeyEncoded) as Vault.OpenResult.Success
+        assertThat(remote.vault.entries.map { it.credentialId }).containsExactly("cred-B")
+        assertThat(remote.vault.devices.map { it.deviceId }).doesNotContain("lost")
+    }
+
+    @Test
+    fun `a pending revocation is pushed over the copy it replaces`() = runTest {
+        val server = FakeWebDavServer()
+        val (_, deviceA, deviceB) = twoDevicesSharingAVault()
+        val originalKey = deviceA.signingPublicKeyEncoded.copyOf()
+        val lost = HybridKem.generateKeyPair()
+        deviceA.enrollDevice("lost", "lost phone", lost.publicKey)
+        engine(server, originalKey).sync(deviceA)
+        engine(server, originalKey).sync(deviceB)
+
+        deviceB.serializeChange { check(revokeDevice("lost", passphrase)) }
+        deviceA.addOrReplace(entry("cred-A", "github.com"))
+        engine(server, originalKey).sync(deviceA)
+
+        val outcome = engine(server, originalKey).sync(deviceB)
+
+        assertThat(outcome).isInstanceOf(VaultSyncEngine.Outcome.Merged::class.java)
+        val remote = Vault.open(server.read(remotePath)!!, passphrase, originalKey) as Vault.OpenResult.Success
+        assertThat(remote.signingPublicKey).isEqualTo(deviceB.signingPublicKeyEncoded)
+        assertThat(remote.vault.entries.map { it.credentialId }).containsExactly("cred-A")
+        assertThat(remote.vault.revokedDevices.map { it.deviceId }).containsExactly("lost")
+    }
 }

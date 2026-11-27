@@ -137,12 +137,89 @@ class VaultTest {
         vault.enrollDevice("phone-1", "/e/OS phone", phone.publicKey)
         vault.serialize()
 
-        vault.revokeDevice("phone-1")
-        val afterRevocation = vault.serialize()
+        val afterRevocation = vault.serializeChange { check(revokeDevice("phone-1", passphrase)) }
 
         val result = Vault.openWithDeviceKey(afterRevocation, "phone-1", phone.privateKey, phone.publicKey)
         assertThat(result).isInstanceOf(Vault.OpenResult.WrongPassphrase::class.java)
     }
+
+    @Test
+    fun `revocation rotates both keys and keeps the other devices`() {
+        val vault = Vault.create(passphrase, testKdf)
+        val lost = HybridKem.generateKeyPair()
+        val kept = HybridKem.generateKeyPair()
+        vault.enrollDevice("lost", "lost phone", lost.publicKey)
+        vault.enrollDevice("kept", "tablet", kept.publicKey)
+        vault.addOrReplace(entry("cred-1"))
+        val before = vault.serialize()
+        val oldKey = vault.signingPublicKeyEncoded.copyOf()
+        val oldVmk = vault.exportMasterKeyForLocalWrapping()
+
+        val after = vault.serializeChange { check(revokeDevice("lost", passphrase, now = 5_000)) }
+
+        assertThat(vault.signingPublicKeyEncoded).isNotEqualTo(oldKey)
+        assertThat(Vault.openWithMasterKey(after, oldVmk)).isNotInstanceOf(Vault.OpenResult.Success::class.java)
+        val tablet = Vault.openWithDeviceKey(after, "kept", kept.privateKey, kept.publicKey, pinnedSigningKey = oldKey)
+        assertThat(tablet).isInstanceOf(Vault.OpenResult.Success::class.java)
+        val reopened = (tablet as Vault.OpenResult.Success).vault
+        assertThat(reopened.devices.map { it.deviceId }).containsExactly("kept")
+        assertThat(reopened.revokedDevices.map { it.deviceId }).containsExactly("lost")
+        assertThat(reopened.exposedEntries().map { it.exposedAt }).containsExactly(5_000L)
+        assertThat(openSuccess(after, pinned = oldKey).vault.entries).hasSize(1)
+        assertThat(openSuccess(before, pinned = oldKey).vault.exposedEntries()).isEmpty()
+    }
+
+    @Test
+    fun `revocation with the wrong passphrase changes nothing`() {
+        val vault = Vault.create(passphrase, testKdf)
+        vault.enrollDevice("lost", "lost phone", HybridKem.generateKeyPair().publicKey)
+        val key = vault.signingPublicKeyEncoded.copyOf()
+
+        assertThat(vault.revokeDevice("lost", "not it".toCharArray())).isFalse()
+        assertThat(vault.signingPublicKeyEncoded).isEqualTo(key)
+        assertThat(vault.devices).hasSize(1)
+    }
+
+    @Test
+    fun `a key chain not signed by the pinned key is refused`() {
+        val vault = Vault.create(passphrase, testKdf)
+        vault.enrollDevice("lost", "lost phone", HybridKem.generateKeyPair().publicKey)
+        val oldKey = vault.signingPublicKeyEncoded.copyOf()
+        vault.serializeChange { check(revokeDevice("lost", passphrase)) }
+
+        val stranger = Vault.create(passphrase, testKdf).serialize()
+
+        assertThat(Vault.open(stranger, passphrase, oldKey)).isInstanceOf(Vault.OpenResult.UnknownSigner::class.java)
+    }
+
+    @Test
+    fun `features move the file to the newer format`() {
+        val plain = Vault.create(passphrase, testKdf)
+        plain.addOrReplace(entry("cred-1"))
+        assertThat(headerOf(plain.serialize())).contains("\"formatVersion\":1")
+
+        val ssh = Vault.create(passphrase, testKdf)
+        ssh.addOrReplace(entry("cred-2", rpId = "ssh:"))
+        val header = headerOf(ssh.serialize())
+        assertThat(header).contains("\"formatVersion\":2")
+        assertThat(header).contains(VaultFile.FEATURE_SSH_CREDENTIALS)
+    }
+
+    @Test
+    fun `a feature this release does not know is refused`() {
+        val bytes = Vault.create(passphrase, testKdf).serialize()
+        val raw = VaultFile.decode(bytes)
+        val forged = raw.headerJson.replace("\"formatVersion\":1", "\"formatVersion\":2")
+            .replace("\"features\":[]", "\"features\":[\"from-the-future\"]")
+        val reframed = VaultFile.encode(forged, raw.content, raw.signature)
+
+        val result = Vault.open(reframed, passphrase)
+
+        assertThat(result).isInstanceOf(Vault.OpenResult.Malformed::class.java)
+        assertThat((result as Vault.OpenResult.Malformed).reason).contains("newer PQ Vault")
+    }
+
+    private fun headerOf(bytes: ByteArray) = VaultFile.decode(bytes).headerJson
 
     @Test
     fun `a device key belonging to someone else does not open the vault`() {
