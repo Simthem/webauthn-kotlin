@@ -42,8 +42,7 @@ make install
 
 That builds `libpqvault-sk.so` and the helper with its own Java runtime (about 70 MB in
 all) and puts them in `~/.local/lib/pqvault-ssh` (`make install PREFIX=...` to change it,
-`make uninstall` to remove it). The library finds the helper installed next to it. `PQVAULT_SK_HELPER` can
-point it at another one, with an absolute path.
+`make uninstall` to remove it). The library only ever starts the helper installed next to it.
 
 ## Using it
 

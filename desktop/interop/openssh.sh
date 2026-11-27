@@ -15,6 +15,10 @@ fi
 
 RUN=$(mktemp -d)
 trap 'kill "$SSHD" 2>/dev/null; rm -rf "$RUN"' EXIT
+mkdir -p "$RUN/prefix/helper/bin"
+cp "$LIB" "$RUN/prefix/libpqvault-sk.so"
+cp "$HELPER" "$RUN/prefix/helper/bin/pqvault-ssh-helper"
+LIB=$RUN/prefix/libpqvault-sk.so
 ip link set lo up
 SSHD_BIN=$(command -v sshd || echo /usr/sbin/sshd)
 PASS=0
@@ -56,11 +60,11 @@ Host bench
   BatchMode yes
 CONFIG
 
-export PQVAULT_SK_HELPER=$HELPER PQVAULT_LOOPBACK_DIR=$RUN SSH_SK_PROVIDER=$LIB
+export PQVAULT_LOOPBACK_DIR=$RUN SSH_SK_PROVIDER=$LIB
 unset SSH_AUTH_SOCK
 login() {
     [ -f "$1" ] || return 1
-    timeout 60 ssh -F "$RUN/ssh_config" -o SecurityKeyProvider="${2:-$LIB}" -i "$1" bench 'echo LOGIN-OK' \
+    timeout 60 ssh -F "$RUN/ssh_config" -o SecurityKeyProvider="$LIB" -i "$1" bench 'echo LOGIN-OK' \
         2> "$RUN/ssh.err" | grep -q LOGIN-OK
 }
 keygen() { timeout 60 ssh-keygen -q -w "$LIB" -N '' "$@" > "$RUN/keygen.out" 2>&1; }
@@ -97,15 +101,6 @@ if timeout 60 ssh-keygen -q -Y sign -f "$RUN/k1" -n file "$RUN/message" > "$RUN/
     pass "ssh-keygen -Y sign and -Y verify"
 else
     fail "SSH signature of a file"
-fi
-
-mkdir -p "$RUN/prefix/helper/bin"
-cp "$LIB" "$RUN/prefix/libpqvault-sk.so"
-cp "$HELPER" "$RUN/prefix/helper/bin/pqvault-ssh-helper"
-if (unset PQVAULT_SK_HELPER; login "$RUN/k1" "$RUN/prefix/libpqvault-sk.so"); then
-    pass "the library finds the helper installed next to it"
-else
-    fail "installed layout"
 fi
 
 phone unavailable verify

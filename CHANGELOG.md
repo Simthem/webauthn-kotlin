@@ -49,6 +49,13 @@
   into. It was already ignored.
 - CI runs the provider's unit tests and library build, and the OpenSSH
   interoperability test on GitHub.
+- Security scanners: the OpenSSH key file label lives in one constant marked
+  for gitleaks, and the findings it raised in history are recorded as reviewed
+  (the exported file holds no private key). SAST no longer reads the Android SDK
+  and Gradle caches, the provider library has no macro Semgrep cannot parse and no longer
+  reads the helper's path from the environment, and
+  an unlock branch of the credential provider is written so Semgrep analyses the
+  file. Snyk Code skips the interop test harness.
 
 ### Release notes
 

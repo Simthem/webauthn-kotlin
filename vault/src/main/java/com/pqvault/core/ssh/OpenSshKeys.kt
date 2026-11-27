@@ -23,6 +23,10 @@ object OpenSshKeys {
     const val FLAG_USER_VERIFICATION_REQUIRED = 0x04
     const val FLAG_RESIDENT_KEY = 0x20
 
+    /** OpenSSH's label for this format, also used for security key files that hold no private key. */
+    const val KEY_FILE_BEGIN = "-----BEGIN OPENSSH PRIVATE KEY-----" // gitleaks:allow
+    const val KEY_FILE_END = "-----END OPENSSH PRIVATE KEY-----"
+
     private const val ECDSA_TYPE = "sk-ecdsa-sha2-nistp256@openssh.com"
     private const val ED25519_TYPE = "sk-ssh-ed25519@openssh.com"
     private const val CURVE = "nistp256"
@@ -118,7 +122,7 @@ object OpenSshKeys {
         }.toByteArray()
 
         val body = Base64.getEncoder().encodeToString(encoded).chunked(LINE_LENGTH).joinToString("\n")
-        return "-----BEGIN OPENSSH PRIVATE KEY-----\n$body\n-----END OPENSSH PRIVATE KEY-----\n"
+        return "$KEY_FILE_BEGIN\n$body\n$KEY_FILE_END\n"
     }
 
     /** The SEC1 uncompressed point for ECDSA, the raw 32 bytes for Ed25519. */

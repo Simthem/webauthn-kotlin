@@ -1,0 +1,8 @@
+# Snyk (https://snyk.io) policy file.
+version: v1.25.1
+exclude:
+  code:
+    # Test harness for desktop/interop/openssh.sh, never built into the helper. Its only
+    # input is the temporary directory the script hands it, which Snyk Code reads as an
+    # untrusted path.
+    - desktop/src/test/kotlin/com/pqvault/desktop/LoopbackHelper.kt

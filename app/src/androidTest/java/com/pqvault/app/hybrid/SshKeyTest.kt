@@ -64,7 +64,7 @@ class SshKeyTest {
         assertThat(valid).isTrue()
         assertThat(RemoteRequestPolicy.maySign(login(entry.credentialId), entry, verified = false)).isFalse()
         assertThat(OpenSshKeys.authorizedKeysLine(entry, "pq-vault")).startsWith("sk-ssh-ed25519@openssh.com ")
-        assertThat(OpenSshKeys.keyFile(entry, "pq-vault")).startsWith("-----BEGIN OPENSSH PRIVATE KEY-----")
+        assertThat(OpenSshKeys.keyFile(entry, "pq-vault")).startsWith(OpenSshKeys.KEY_FILE_BEGIN)
         assertThat(RemoteRequestPolicy.residentSshKeys(listOf(entry))).containsExactly(entry)
         assertThat(Ctap2Protocol.sshKeyListResponse(listOf(entry))[0]).isEqualTo(Ctap2Protocol.STATUS_OK.toByte())
         assertThat(OpenSshKeys.verifyRequiredLine(entry, "pq-vault")).startsWith("verify-required sk-ssh-ed25519@openssh.com ")
@@ -86,6 +86,6 @@ class SshKeyTest {
 
         assertThat(valid).isTrue()
         assertThat(OpenSshKeys.fingerprint(entry)).startsWith("SHA256:")
-        assertThat(OpenSshKeys.keyFile(entry, "pq-vault")).contains("-----END OPENSSH PRIVATE KEY-----")
+        assertThat(OpenSshKeys.keyFile(entry, "pq-vault")).contains(OpenSshKeys.KEY_FILE_END)
     }
 }

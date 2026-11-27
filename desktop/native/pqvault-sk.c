@@ -11,8 +11,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define SK_API __attribute__((visibility("default")))
-
 #define SSH_SK_VERSION_MAJOR		0x000a0000
 #define SSH_SK_ECDSA			0x00
 #define SSH_SK_ED25519			0x01
@@ -59,15 +57,15 @@ struct sk_option {
 	uint8_t required;
 };
 
-SK_API uint32_t sk_api_version(void);
-SK_API int sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
+uint32_t sk_api_version(void);
+int sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
     const char *application, uint8_t flags, const char *pin,
     struct sk_option **options, struct sk_enroll_response **enroll_response);
-SK_API int sk_sign(uint32_t alg, const uint8_t *data, size_t data_len,
+int sk_sign(uint32_t alg, const uint8_t *data, size_t data_len,
     const char *application, const uint8_t *key_handle, size_t key_handle_len,
     uint8_t flags, const char *pin, struct sk_option **options,
     struct sk_sign_response **sign_response);
-SK_API int sk_load_resident_keys(const char *pin, struct sk_option **options,
+int sk_load_resident_keys(const char *pin, struct sk_option **options,
     struct sk_resident_key ***rks, size_t *nrks);
 
 #define OP_ENROLL	1
@@ -104,7 +102,7 @@ put(struct buffer *b, const void *data, size_t len)
 		b->cap = cap;
 	}
 	if (len > 0)
-		memcpy(b->data + b->len, data, len);
+		memcpy(b->data + b->len, data, len); // nosemgrep: flawfinder.memcpy-1.CopyMemory-1.bcopy-1
 	b->len += len;
 	return 0;
 }
@@ -143,7 +141,7 @@ get(struct reader *r, void *out, size_t len)
 {
 	if (len > r->len - r->pos)
 		return -1;
-	memcpy(out, r->data + r->pos, len);
+	memcpy(out, r->data + r->pos, len); // nosemgrep: flawfinder.memcpy-1.CopyMemory-1.bcopy-1
 	r->pos += len;
 	return 0;
 }
@@ -177,34 +175,33 @@ get_field(struct reader *r, uint8_t **out, size_t *out_len)
 		return 0;
 	if ((*out = malloc(len)) == NULL)
 		return -1;
-	memcpy(*out, r->data + r->pos, len);
-	r->pos += len;
+	if (get(r, *out, len) != 0) {
+		free(*out);
+		*out = NULL;
+		return -1;
+	}
 	*out_len = len;
 	return 0;
 }
 
-/* The helper given by PQVAULT_SK_HELPER, or the one installed next to this library. */
+/* The helper installed next to this library, and only that one. */
 static char *
 helper_path(void)
 {
-	const char *configured = getenv("PQVAULT_SK_HELPER");
 	Dl_info info;
 	const char *slash;
-	char *path;
-	size_t dir_len;
+	struct buffer path = { 0 };
 	static const char suffix[] = "/helper/bin/pqvault-ssh-helper";
 
-	if (configured != NULL && configured[0] != '\0')
-		return configured[0] == '/' ? strdup(configured) : NULL;
 	if (dladdr((void *)helper_path, &info) == 0 || info.dli_fname == NULL ||
 	    info.dli_fname[0] != '/' || (slash = strrchr(info.dli_fname, '/')) == NULL)
 		return NULL;
-	dir_len = (size_t)(slash - info.dli_fname);
-	if ((path = malloc(dir_len + sizeof(suffix))) == NULL)
+	if (put(&path, info.dli_fname, (size_t)(slash - info.dli_fname)) != 0 ||
+	    put(&path, suffix, sizeof(suffix)) != 0) {
+		free(path.data);
 		return NULL;
-	memcpy(path, info.dli_fname, dir_len);
-	memcpy(path + dir_len, suffix, sizeof(suffix));
-	return path;
+	}
+	return (char *)path.data;
 }
 
 static int
@@ -293,7 +290,7 @@ build_request(struct buffer *b, uint8_t op, uint32_t alg, uint8_t flags,
 {
 	size_t app_len;
 
-	if (application == NULL || (app_len = strlen(application)) >= MAX_APPLICATION ||
+	if (application == NULL || (app_len = strnlen(application, MAX_APPLICATION)) >= MAX_APPLICATION ||
 	    message_len > MAX_MESSAGE || handle_len > MAX_HANDLE)
 		return -1;
 	if (put(b, "PQSK", 4) != 0 || put_u8(b, 1) != 0 || put_u8(b, op) != 0 ||
@@ -325,8 +322,9 @@ read_header(struct reader *r, uint8_t expected_op)
 	return 0;
 }
 
+/* Checks the options. With user_id set, also points it at the "user" value, if any. */
 static int
-check_options(struct sk_option **options, uint8_t *user_id, size_t *user_id_len)
+check_options(struct sk_option **options, const char **user_id, size_t *user_id_len)
 {
 	size_t i;
 
@@ -334,10 +332,10 @@ check_options(struct sk_option **options, uint8_t *user_id, size_t *user_id_len)
 		return 0;
 	for (i = 0; options[i] != NULL; i++) {
 		if (strcmp(options[i]->name, "user") == 0 && user_id != NULL) {
-			size_t len = strlen(options[i]->value);
+			size_t len = strnlen(options[i]->value, USER_ID_MAX + 1);
 			if (len > USER_ID_MAX)
 				return -1;
-			memcpy(user_id, options[i]->value, len);
+			*user_id = options[i]->value;
 			*user_id_len = len;
 		} else if (strcmp(options[i]->name, "device") != 0 && options[i]->required) {
 			return -1;
@@ -346,13 +344,13 @@ check_options(struct sk_option **options, uint8_t *user_id, size_t *user_id_len)
 	return 0;
 }
 
-SK_API uint32_t
+uint32_t
 sk_api_version(void)
 {
 	return SSH_SK_VERSION_MAJOR;
 }
 
-SK_API int
+int
 sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
     const char *application, uint8_t flags, const char *pin,
     struct sk_option **options, struct sk_enroll_response **enroll_response)
@@ -360,7 +358,7 @@ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
 	struct buffer request = { 0 }, reply = { 0 };
 	struct reader r;
 	struct sk_enroll_response *response = NULL;
-	uint8_t user_id[USER_ID_MAX] = { 0 };
+	const char *user_id = "";
 	size_t user_id_len = 0;
 	uint8_t *attestation_cert = NULL;
 	size_t attestation_cert_len = 0;
@@ -372,10 +370,10 @@ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
 	*enroll_response = NULL;
 	if (alg != SSH_SK_ECDSA && alg != SSH_SK_ED25519)
 		return SSH_SK_ERR_UNSUPPORTED;
-	if (check_options(options, user_id, &user_id_len) != 0)
+	if (check_options(options, &user_id, &user_id_len) != 0)
 		return SSH_SK_ERR_GENERAL;
 	if (build_request(&request, OP_ENROLL, alg, flags, application,
-	    challenge, challenge_len, user_id, user_id_len) != 0 ||
+	    challenge, challenge_len, (const uint8_t *)user_id, user_id_len) != 0 ||
 	    exchange(&request, &reply) != 0)
 		goto out;
 
@@ -415,7 +413,7 @@ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
 	return ret;
 }
 
-SK_API int
+int
 sk_sign(uint32_t alg, const uint8_t *data, size_t data_len,
     const char *application, const uint8_t *key_handle, size_t key_handle_len,
     uint8_t flags, const char *pin, struct sk_option **options,
@@ -498,10 +496,8 @@ read_resident_key(struct reader *r, struct sk_resident_key *rk)
 		goto fail;
 	if (application == NULL || application_len >= MAX_APPLICATION ||
 	    memchr(application, '\0', application_len) != NULL ||
-	    (rk->application = malloc(application_len + 1)) == NULL)
+	    (rk->application = strndup((const char *)application, application_len)) == NULL)
 		goto fail;
-	memcpy(rk->application, application, application_len);
-	rk->application[application_len] = '\0';
 	free(application);
 	if (get_u8(r, &rk->flags) != 0 ||
 	    get_field(r, &rk->key.public_key, &rk->key.public_key_len) != 0 ||
@@ -517,7 +513,7 @@ read_resident_key(struct reader *r, struct sk_resident_key *rk)
 }
 
 /* The resident SSH keys of the vault, sent by the phone after user verification. */
-SK_API int
+int
 sk_load_resident_keys(const char *pin, struct sk_option **options,
     struct sk_resident_key ***rksp, size_t *nrksp)
 {

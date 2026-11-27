@@ -95,8 +95,8 @@ class OpenSshKeysTest {
         val file = OpenSshKeys.keyFile(entry, "pq-vault", SecureRandom())
         val lines = file.trimEnd().lines()
 
-        assertThat(lines.first()).isEqualTo("-----BEGIN OPENSSH PRIVATE KEY-----")
-        assertThat(lines.last()).isEqualTo("-----END OPENSSH PRIVATE KEY-----")
+        assertThat(lines.first()).isEqualTo(OpenSshKeys.KEY_FILE_BEGIN)
+        assertThat(lines.last()).isEqualTo(OpenSshKeys.KEY_FILE_END)
         assertThat(lines.drop(1).dropLast(1).all { it.length <= 70 }).isTrue()
 
         val decoded = Base64.getDecoder().decode(lines.drop(1).dropLast(1).joinToString(""))

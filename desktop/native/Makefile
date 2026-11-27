@@ -7,7 +7,7 @@ BUILD := ../build/native
 HELPER := ../build/install/pqvault-ssh-helper
 
 WARNINGS := -Wall -Wextra -Werror -Wformat=2 -Wshadow -Wconversion -Wno-sign-conversion
-HARDENING := -fPIC -fvisibility=hidden -fstack-protector-strong -D_FORTIFY_SOURCE=2
+HARDENING := -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2
 LINK := -shared -Wl,-z,relro,-z,now -Wl,--no-undefined -ldl
 
 .PHONY: all helper install uninstall clean

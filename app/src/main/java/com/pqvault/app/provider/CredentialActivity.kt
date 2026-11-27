@@ -133,12 +133,11 @@ class CredentialActivity : AppCompatActivity() {
         val lock = BiometricVaultLock(this)
         if (lock.isEnrolled() && lock.isAvailable()) {
             when (val result = lock.unlock(this)) {
-                is BiometricVaultLock.UnlockResult.Success ->
-                    if (repository.unlockWithMasterKey(result.masterKey)
-                        is VaultRepository.UnlockOutcome.Success
-                    ) {
+                is BiometricVaultLock.UnlockResult.Success -> {
+                    if (repository.unlockWithMasterKey(result.masterKey) is VaultRepository.UnlockOutcome.Success) {
                         return true
                     }
+                }
                 // Anything else falls through to the passphrase sheet rather than failing.
                 else -> Unit
             }

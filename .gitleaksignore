@@ -8,3 +8,14 @@
 # other primitives the vault format uses, and it appears the same way throughout the
 # sources and the README.
 4908ed3a6b08f14fce0ae342a945a5623c141b91:CHANGELOG.md:generic-api-key:17
+
+# GitLab's "SSH private key" rule fires on the PEM label alone, and the default private-key
+# rule on the begin and end labels a few lines apart in the tests. These lines are the label
+# OpenSSH puts on a security key file, written by the key export and checked by its tests.
+# That file holds the public key and the key handle, never a private key. The label now
+# lives in one constant, OpenSshKeys.KEY_FILE_BEGIN, marked gitleaks:allow.
+1dc5db8a7d016582fdb77faf3eeebfaaf9901637:app/src/androidTest/java/com/pqvault/app/hybrid/SshKeyTest.kt:SSH private key:67
+1dc5db8a7d016582fdb77faf3eeebfaaf9901637:vault/src/main/java/com/pqvault/core/ssh/OpenSshKeys.kt:SSH private key:121
+1dc5db8a7d016582fdb77faf3eeebfaaf9901637:vault/src/test/java/com/pqvault/core/ssh/OpenSshKeysTest.kt:SSH private key:98
+1dc5db8a7d016582fdb77faf3eeebfaaf9901637:app/src/androidTest/java/com/pqvault/app/hybrid/SshKeyTest.kt:private-key:67
+1dc5db8a7d016582fdb77faf3eeebfaaf9901637:vault/src/test/java/com/pqvault/core/ssh/OpenSshKeysTest.kt:private-key:98
