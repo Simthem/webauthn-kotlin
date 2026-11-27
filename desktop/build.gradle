@@ -1,0 +1,99 @@
+plugins {
+    id "org.jetbrains.kotlin.jvm"
+    id "org.jetbrains.kotlin.plugin.serialization"
+}
+
+// Built for and run on the JDK 21 runtime installed with the helper (helperRuntime below).
+kotlin {
+    jvmToolchain(jvmTargetHost as int)
+}
+
+sourceSets {
+    main {
+        kotlin {
+            srcDir "../vault/src/main/java"
+        }
+    }
+}
+
+dependencies {
+    implementation "org.bouncycastle:bcprov-jdk15to18:$bouncyCastleVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion"
+    implementation "co.nstant.in:cbor:$cborVersion"
+    implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
+    implementation "com.google.zxing:core:$zxingVersion"
+    implementation "com.github.hypfvieh:dbus-java-core:$dbusJavaVersion"
+    implementation "com.github.hypfvieh:dbus-java-transport-native-unixsocket:$dbusJavaVersion"
+    runtimeOnly "org.slf4j:slf4j-nop:$slf4jVersion"
+
+    testImplementation platform("org.junit:junit-bom:$junit5Version")
+    testImplementation "org.junit.jupiter:junit-jupiter-api"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation "com.google.truth:truth:$truthVersion"
+}
+
+// OkHttp brings the 1.9 stdlib shims (CVE-2020-29582). Same floor as the Android build.
+configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == "org.jetbrains.kotlin" && details.requested.name.startsWith("kotlin-stdlib")) {
+            details.useVersion(kotlinVersion)
+        }
+    }
+}
+
+// A trimmed Java runtime installed with the helper, so the computer needs no Java of its own.
+// jdk.crypto.ec holds the EC provider (P-256, TLS key exchange), which jdeps cannot see.
+def helperRuntime = tasks.register("helperRuntime", Exec) {
+    def jdk = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(jvmTargetHost as int) }
+    def output = layout.buildDirectory.dir("helper-runtime")
+    outputs.dir(output)
+    doFirst {
+        delete(output)
+        executable = jdk.get().metadata.installationPath.file("bin/jlink").asFile
+    }
+    args "--add-modules",
+        "java.base,java.desktop,java.instrument,java.sql,jdk.crypto.ec,jdk.net,jdk.security.auth,jdk.unsupported",
+        "--strip-debug", "--no-man-pages", "--no-header-files", "--compress=zip-6",
+        "--output", output.get().asFile
+}
+
+tasks.register("installHelper", Sync) {
+    into layout.buildDirectory.dir("install/pqvault-ssh-helper")
+    into("bin") { from "launcher" }
+    into("lib") {
+        from tasks.named("jar")
+        from configurations.runtimeClasspath
+    }
+    into("runtime") { from helperRuntime }
+}
+
+tasks.named("test") {
+    useJUnitPlatform()
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat = "full"
+    }
+    afterSuite { desc, result ->
+        if (desc.parent == null) {
+            println "\n${result.testCount} tests: ${result.successfulTestCount} passed, " +
+                "${result.failedTestCount} failed, ${result.skippedTestCount} skipped"
+        }
+    }
+}
+
+// Test stand-in for the helper, used by interop/openssh.sh. Never installed.
+tasks.register("loopbackHelper") {
+    dependsOn "testClasses"
+    def script = layout.buildDirectory.file("loopback/pqvault-loopback-helper")
+    def classpath = sourceSets.test.runtimeClasspath
+    def launcher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(jvmTargetHost as int) }
+    outputs.file(script)
+    doLast {
+        def file = script.get().asFile
+        file.text = "#!/bin/sh\nexec '${launcher.get().executablePath.asFile}' -cp '${classpath.files.join(":")}' " +
+            "com.pqvault.desktop.LoopbackHelperKt\n"
+        file.setExecutable(true)
+    }
+}

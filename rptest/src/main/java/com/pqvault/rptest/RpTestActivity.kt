@@ -12,6 +12,8 @@ import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetPublicKeyCredentialOption
+import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import java.security.SecureRandom
@@ -44,13 +46,13 @@ class RpTestActivity : AppCompatActivity() {
 
         root.addView(
             Button(this).apply {
-                text = "Create a passkey"
+                setText(R.string.create_passkey)
                 setOnClickListener { create() }
             },
         )
         root.addView(
             Button(this).apply {
-                text = "Use a passkey"
+                setText(R.string.use_passkey)
                 setOnClickListener { get() }
             },
         )
@@ -106,16 +108,17 @@ class RpTestActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             log("Authentication request sent...")
-            runCatching {
-                CredentialManager.create(this@RpTestActivity).getCredential(
+            try {
+                val response = CredentialManager.create(this@RpTestActivity).getCredential(
                     context = this@RpTestActivity,
                     request = GetCredentialRequest(listOf(GetPublicKeyCredentialOption(json))),
                 )
-            }.onSuccess {
-                log("SUCCESS\n${it.credential.data}")
-            }.onFailure {
-                log("FAILED: ${it::class.java.simpleName}\n${it.message}")
-                Log.e("RpTest", "get failed", it)
+                log("SUCCESS\n${response.credential.data}")
+            } catch (e: NoCredentialException) {
+                log("No passkey offered for pqvault.test\n${e.message}")
+            } catch (e: GetCredentialException) {
+                log("FAILED: ${e::class.java.simpleName}\n${e.message}")
+                Log.e("RpTest", "get failed", e)
             }
         }
     }

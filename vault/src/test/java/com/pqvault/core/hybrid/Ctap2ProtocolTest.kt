@@ -143,6 +143,85 @@ class Ctap2ProtocolTest {
         }
     }
 
+    @Test
+    fun `credProtect extension and silent assertions are decoded`() {
+        val withProtection = makeCredentialBody().put(
+            uint(6),
+            CborMap().put(text("credProtect"), uint(3)),
+        )
+        val creation = Ctap2Protocol.parse(
+            byteArrayOf(Ctap2Protocol.COMMAND_MAKE_CREDENTIAL.toByte()) + encode(withProtection),
+        ) as Ctap2Protocol.Request.MakeCredential
+        val silent = CborMap()
+            .put(uint(1), text("ssh:"))
+            .put(uint(2), ByteString(ByteArray(32)))
+            .put(uint(5), CborMap().put(text("up"), SimpleValue.FALSE))
+        val assertion = Ctap2Protocol.parse(
+            byteArrayOf(Ctap2Protocol.COMMAND_GET_ASSERTION.toByte()) + encode(silent),
+        ) as Ctap2Protocol.Request.GetAssertion
+
+        assertThat(creation.credentialProtection).isEqualTo(3)
+        assertThat(assertion.userPresence).isFalse()
+    }
+
+    @Test
+    fun `an out of range credProtect level is refused`() {
+        val body = makeCredentialBody().put(uint(6), CborMap().put(text("credProtect"), uint(4)))
+
+        assertThrows<IllegalArgumentException> {
+            Ctap2Protocol.parse(byteArrayOf(Ctap2Protocol.COMMAND_MAKE_CREDENTIAL.toByte()) + encode(body))
+        }
+    }
+
+    @Test
+    fun `get info advertises credProtect and both supported algorithms`() {
+        val response = Ctap2Protocol.getInfoResponse(userVerificationAvailable = true)
+        val info = CborDecoder.decode(response.copyOfRange(1, response.size)).single() as CborMap
+        val extensions = (info.get(uint(2)) as CborArray).dataItems.map { (it as UnicodeString).string }
+        val algorithms = (info.get(uint(10)) as CborArray).dataItems.map {
+            ((it as CborMap).get(text("alg")) as NegativeInteger).value.toInt()
+        }
+
+        assertThat(extensions).containsExactly("credProtect")
+        assertThat(algorithms).containsExactly(-7, -8).inOrder()
+    }
+
+    @Test
+    fun `a self attested registration is answered with a packed statement`() {
+        val registration = SoftwareAuthenticator().makeCredential(
+            rpId = "ssh:",
+            rpName = null,
+            userHandle = ByteArray(32),
+            userName = "openssh",
+            userDisplayName = "openssh",
+            clientDataHash = ByteArray(32),
+            selfAttestation = true,
+        )
+
+        val response = Ctap2Protocol.makeCredentialResponse(registration)
+        val body = CborDecoder.decode(response.copyOfRange(1, response.size)).single() as CborMap
+        val statement = body.get(uint(3)) as CborMap
+
+        assertThat((body.get(uint(1)) as UnicodeString).string).isEqualTo("packed")
+        assertThat((statement.get(text("alg")) as NegativeInteger).value.toInt()).isEqualTo(-7)
+        assertThat((statement.get(text("sig")) as ByteString).bytes).isEqualTo(registration.attestationSignature)
+    }
+
+    private fun makeCredentialBody(): CborMap = CborMap()
+        .put(uint(1), ByteString(ByteArray(32)))
+        .put(uint(2), CborMap().put(text("id"), text("ssh:")))
+        .put(
+            uint(3),
+            CborMap()
+                .put(text("id"), ByteString(ByteArray(32)))
+                .put(text("name"), text("openssh"))
+                .put(text("displayName"), text("openssh")),
+        )
+        .put(
+            uint(4),
+            CborArray().add(CborMap().put(text("alg"), NegativeInteger(-8)).put(text("type"), text("public-key"))),
+        )
+
     private fun encode(map: CborMap): ByteArray = ByteArrayOutputStream().also {
         CborEncoder(it).encode(map)
     }.toByteArray()

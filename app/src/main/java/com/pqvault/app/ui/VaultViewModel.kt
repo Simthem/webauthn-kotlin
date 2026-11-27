@@ -17,12 +17,13 @@ import com.pqvault.app.provider.InstalledBrowsers
 import com.pqvault.app.security.BiometricVaultLock
 import com.pqvault.app.security.HybridUserVerification
 import com.pqvault.app.sync.VaultSyncWorker
-import com.pqvault.core.format.Base64Url
 import com.pqvault.core.format.VaultFile
 import com.pqvault.core.hybrid.Ctap2Protocol
 import com.pqvault.core.hybrid.FidoQrCode
+import com.pqvault.core.hybrid.RemoteRequestPolicy
 import com.pqvault.core.model.CoseAlgorithm
 import com.pqvault.core.model.PasskeyEntry
+import com.pqvault.core.ssh.OpenSshKeys
 import com.pqvault.core.sync.VaultSyncEngine
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private var hybridSession: HybridSession? = null
     private var pendingFidoCode: String? = null
     private var pendingImportUri: Uri? = null
+    private var pendingSshExport: String? = null
 
     enum class Screen { Loading, Onboarding, Locked, Vault, Settings }
 
@@ -56,7 +58,10 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val request: Ctap2Protocol.Request,
         val candidates: List<PasskeyEntry> = emptyList(),
         val hasExistingAccount: Boolean = false,
-    )
+        val algorithm: CoseAlgorithm? = null,
+    ) {
+        val ssh: Boolean get() = RemoteRequestPolicy.isSsh(request)
+    }
 
     data class UiState(
         val screen: Screen = Screen.Loading,
@@ -442,13 +447,16 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val request = prompt.request
         viewModelScope.launch {
             _state.update { it.copy(busy = true, hybridError = null) }
-            val rpId = when (request) {
-                is Ctap2Protocol.Request.MakeCredential -> request.rpId
-                is Ctap2Protocol.Request.GetAssertion -> request.rpId
+            val subject = when (request) {
+                is Ctap2Protocol.Request.MakeCredential ->
+                    if (prompt.ssh) string(R.string.hybrid_ssh_subject, request.rpId) else request.rpId
+                is Ctap2Protocol.Request.GetAssertion ->
+                    if (prompt.ssh) string(R.string.hybrid_ssh_subject, request.rpId) else request.rpId
+                Ctap2Protocol.Request.ListSshKeys -> string(R.string.hybrid_ssh_list_subject)
                 else -> return@launch
             }
             val verified = if (HybridApprovalPolicy.shouldVerify(request, hybridVerification.isAvailable)) {
-                when (val result = hybridVerification.verify(activity, rpId)) {
+                when (val result = hybridVerification.verify(activity, subject)) {
                     HybridUserVerification.Result.Verified -> true
                     HybridUserVerification.Result.Cancelled -> {
                         _state.update { it.copy(busy = false) }
@@ -470,13 +478,24 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            if (HybridApprovalPolicy.requiresVerification(request) && !verified) {
+            val chosen = prompt.candidates.firstOrNull { it.credentialId == credentialId }
+                ?: prompt.candidates.singleOrNull()
+            val allowed = when (request) {
+                is Ctap2Protocol.Request.MakeCredential -> RemoteRequestPolicy.mayCreate(request, verified)
+                is Ctap2Protocol.Request.GetAssertion ->
+                    chosen == null || RemoteRequestPolicy.maySign(request, chosen, verified)
+                Ctap2Protocol.Request.ListSshKeys -> RemoteRequestPolicy.mayList(verified)
+                else -> false
+            }
+            if ((HybridApprovalPolicy.requiresVerification(request) && !verified) || !allowed) {
                 hybridSession?.respond(Ctap2Protocol.error(Ctap2Protocol.STATUS_UNSUPPORTED_OPTION))
                 _state.update {
                     it.copy(
                         busy = false,
                         hybridPhase = HybridPhase.Error,
-                        hybridError = string(R.string.hybrid_uv_unavailable),
+                        hybridError = string(
+                            if (prompt.ssh) R.string.hybrid_ssh_uv_unavailable else R.string.hybrid_uv_unavailable,
+                        ),
                         hybridPrompt = null,
                     )
                 }
@@ -486,25 +505,22 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 when (request) {
                     is Ctap2Protocol.Request.MakeCredential -> {
-                        val registration = authenticator.makeCredential(
-                            rpId = request.rpId,
-                            rpName = request.rpName,
-                            userHandle = request.userHandle,
-                            userName = request.userName,
-                            userDisplayName = request.userDisplayName,
-                            clientDataHash = request.clientDataHash,
-                            algorithm = CoseAlgorithm.ES256,
-                            userVerified = verified,
+                        val registration = RemoteRequestPolicy.register(
+                            authenticator = authenticator,
+                            request = request,
+                            algorithm = prompt.algorithm ?: error(string(R.string.provider_no_algorithm)),
+                            verified = verified,
                         )
                         repository.upsert(registration.entry)
                         Ctap2Protocol.makeCredentialResponse(registration)
                     }
                     is Ctap2Protocol.Request.GetAssertion -> {
-                        val entry = prompt.candidates.firstOrNull { it.credentialId == credentialId }
-                            ?: prompt.candidates.singleOrNull()
-                            ?: error(string(R.string.provider_no_passkey))
+                        val entry = chosen ?: error(string(R.string.provider_no_passkey))
                         // The prompt's copy may be minutes old: sign from the stored one.
                         val assertion = repository.signAssertion(entry.credentialId) {
+                            check(RemoteRequestPolicy.maySign(request, it, verified)) {
+                                string(R.string.hybrid_uv_unavailable)
+                            }
                             authenticator.getAssertion(
                                 entry = it,
                                 clientDataHash = request.clientDataHash,
@@ -526,6 +542,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                             includeIdentifyingInformation = verified,
                         )
                     }
+                    Ctap2Protocol.Request.ListSshKeys ->
+                        Ctap2Protocol.sshKeyListResponse(RemoteRequestPolicy.residentSshKeys(repository.allEntries()))
                     else -> error("unexpected CTAP request")
                 }
             }.onSuccess { response ->
@@ -635,76 +653,75 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun handleHybridRequest(request: Ctap2Protocol.Request) {
+        val ssh = RemoteRequestPolicy.isSsh(request)
         when (request) {
             is Ctap2Protocol.Request.MakeCredential -> {
-                if (CoseAlgorithm.ES256.id !in request.offeredAlgorithms) {
-                    failHybridRequest(
-                        Ctap2Protocol.STATUS_UNSUPPORTED_ALGORITHM,
-                        string(R.string.provider_no_algorithm),
-                    )
-                    return
-                }
-                val excluded = repository.entriesFor(request.rpId).any { entry ->
-                    request.excludedCredentialIds.any { excludedId ->
-                        Base64Url.decode(entry.credentialId).contentEquals(excludedId)
-                    }
-                }
-                if (excluded) {
-                    failHybridRequest(
-                        Ctap2Protocol.STATUS_CREDENTIAL_EXCLUDED,
-                        string(R.string.hybrid_credential_exists),
-                    )
-                    return
-                }
-                if (request.userVerification && !hybridVerification.isAvailable) {
-                    failHybridRequest(
-                        Ctap2Protocol.STATUS_UNSUPPORTED_OPTION,
-                        string(R.string.hybrid_uv_unavailable),
-                    )
-                    return
-                }
-                _state.update {
-                    it.copy(
-                        hybridPhase = HybridPhase.Approval,
-                        hybridPrompt = HybridPrompt(
-                            request,
-                            hasExistingAccount = HybridApprovalPolicy.hasExistingAccount(
+                val existing = repository.entriesFor(request.rpId)
+                when (val admission = RemoteRequestPolicy.admit(request, existing, hybridVerification.isAvailable)) {
+                    is RemoteRequestPolicy.Creation.Refused -> refuseHybridRequest(admission.refusal, ssh)
+                    is RemoteRequestPolicy.Creation.Allowed -> _state.update {
+                        it.copy(
+                            hybridPhase = HybridPhase.Approval,
+                            hybridPrompt = HybridPrompt(
                                 request,
-                                repository.entriesFor(request.rpId),
+                                hasExistingAccount = HybridApprovalPolicy.hasExistingAccount(request, existing),
+                                algorithm = admission.algorithm,
                             ),
-                        ),
-                    )
+                        )
+                    }
                 }
             }
             is Ctap2Protocol.Request.GetAssertion -> {
-                val candidates = repository.entriesFor(request.rpId).filter { entry ->
-                    request.allowedCredentialIds.isEmpty() || request.allowedCredentialIds.any { allowed ->
-                        Base64Url.decode(entry.credentialId).contentEquals(allowed)
+                if (!request.userPresence) {
+                    // Probes for a key handle get the same answer as an unknown one, silently.
+                    hybridSession?.respond(Ctap2Protocol.error(Ctap2Protocol.STATUS_NO_CREDENTIALS))
+                    _state.update { it.copy(hybridPhase = HybridPhase.Securing) }
+                    return
+                }
+                val existing = repository.entriesFor(request.rpId)
+                when (val selection = RemoteRequestPolicy.select(request, existing, hybridVerification.isAvailable)) {
+                    is RemoteRequestPolicy.Assertion.Refused -> refuseHybridRequest(selection.refusal, ssh)
+                    is RemoteRequestPolicy.Assertion.Allowed -> _state.update {
+                        it.copy(
+                            hybridPhase = HybridPhase.Approval,
+                            hybridPrompt = HybridPrompt(request, selection.candidates),
+                        )
                     }
                 }
-                if (candidates.isEmpty()) {
-                    failHybridRequest(
+            }
+            Ctap2Protocol.Request.ListSshKeys -> {
+                val keys = RemoteRequestPolicy.residentSshKeys(repository.allEntries())
+                when {
+                    !hybridVerification.isAvailable ->
+                        refuseHybridRequest(RemoteRequestPolicy.Refusal.VERIFICATION_UNAVAILABLE, ssh = true)
+                    keys.isEmpty() -> failHybridRequest(
                         Ctap2Protocol.STATUS_NO_CREDENTIALS,
-                        string(R.string.provider_no_passkey),
+                        string(R.string.hybrid_ssh_no_resident_key),
                     )
-                    return
-                }
-                if (request.userVerification && !hybridVerification.isAvailable) {
-                    failHybridRequest(
-                        Ctap2Protocol.STATUS_UNSUPPORTED_OPTION,
-                        string(R.string.hybrid_uv_unavailable),
-                    )
-                    return
-                }
-                _state.update {
-                    it.copy(
-                        hybridPhase = HybridPhase.Approval,
-                        hybridPrompt = HybridPrompt(request, candidates),
-                    )
+                    else -> _state.update {
+                        it.copy(hybridPhase = HybridPhase.Approval, hybridPrompt = HybridPrompt(request, keys))
+                    }
                 }
             }
             else -> Unit
         }
+    }
+
+    private fun refuseHybridRequest(refusal: RemoteRequestPolicy.Refusal, ssh: Boolean) {
+        failHybridRequest(
+            refusal.status,
+            string(
+                when (refusal) {
+                    RemoteRequestPolicy.Refusal.NO_ALGORITHM -> R.string.provider_no_algorithm
+                    RemoteRequestPolicy.Refusal.EXCLUDED ->
+                        if (ssh) R.string.hybrid_ssh_key_exists else R.string.hybrid_credential_exists
+                    RemoteRequestPolicy.Refusal.VERIFICATION_UNAVAILABLE ->
+                        if (ssh) R.string.hybrid_ssh_uv_unavailable else R.string.hybrid_uv_unavailable
+                    RemoteRequestPolicy.Refusal.NO_CREDENTIALS ->
+                        if (ssh) R.string.hybrid_ssh_no_key else R.string.provider_no_passkey
+                },
+            ),
+        )
     }
 
     private fun failHybridRequest(status: Int, message: String) {
@@ -944,6 +961,27 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelDelete() = _state.update { it.copy(pendingDeletion = null) }
 
+    /** The `authorized_keys` line of an SSH key, with `verify-required`. Null for a website passkey. */
+    fun sshPublicKey(credentialId: String): String? =
+        sshEntry(credentialId)?.let { OpenSshKeys.verifyRequiredLine(it, SSH_KEY_COMMENT) }
+
+    fun sshPublicKeyCopied() = _state.update { it.copy(message = string(R.string.ssh_public_key_copied)) }
+
+    /** Remembers which key the document picker is saving and returns the file name to offer. */
+    fun beginSshKeyExport(credentialId: String): String? = sshEntry(credentialId)?.let {
+        pendingSshExport = credentialId
+        OpenSshKeys.keyFileName(it)
+    }
+
+    /** The key handle file to place in ~/.ssh on another computer. It holds no private key. */
+    fun takeSshKeyExport(): String? = pendingSshExport?.let { credentialId ->
+        pendingSshExport = null
+        sshEntry(credentialId)?.let { OpenSshKeys.keyFile(it, SSH_KEY_COMMENT) }
+    }
+
+    private fun sshEntry(credentialId: String): PasskeyEntry? =
+        repository.entry(credentialId)?.takeIf(OpenSshKeys::isSshKey)
+
     fun deleteEntry(credentialId: String) {
         viewModelScope.launch {
             repository.delete(credentialId)
@@ -1061,6 +1099,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val MIN_PASSPHRASE = 12
+        const val SSH_KEY_COMMENT = "pq-vault"
     }
 
     override fun onCleared() {

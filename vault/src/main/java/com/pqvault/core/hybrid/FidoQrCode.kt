@@ -1,20 +1,24 @@
 package com.pqvault.core.hybrid
 
 import co.nstant.`in`.cbor.CborDecoder
+import co.nstant.`in`.cbor.CborEncoder
 import co.nstant.`in`.cbor.model.Array
 import co.nstant.`in`.cbor.model.ByteString
 import co.nstant.`in`.cbor.model.Map
 import co.nstant.`in`.cbor.model.Number
+import co.nstant.`in`.cbor.model.SimpleValue
 import co.nstant.`in`.cbor.model.UnicodeString
 import co.nstant.`in`.cbor.model.UnsignedInteger
+import java.io.ByteArrayOutputStream
 import java.security.PublicKey
 
-/** Decoder for the digit-encoded `FIDO:/` QR format used by hybrid WebAuthn. */
+/** The digit-encoded `FIDO:/` QR format used by hybrid WebAuthn, read and written. */
 object FidoQrCode {
     private const val PREFIX = "FIDO:/"
     private const val CHUNK_DIGITS = 17
     private const val CHUNK_BYTES = 7
     private val remainderBytes = mapOf(0 to 0, 3 to 1, 5 to 2, 8 to 3, 10 to 4, 13 to 5, 15 to 6)
+    private const val KNOWN_TUNNEL_DOMAINS = 2L
 
     data class Payload(
         val peerIdentity: PublicKey,
@@ -59,6 +63,40 @@ object FidoQrCode {
             supportsWebSocket = transports == null || 0 in transports,
         )
     }.getOrNull()
+
+    /** The code a computer shows for one request, carrying its identity key and a fresh secret. */
+    fun encode(
+        identity: PublicKey,
+        secret: ByteArray,
+        requestType: RequestType,
+        nowSeconds: Long = System.currentTimeMillis() / 1000,
+    ): String {
+        require(secret.size == 16)
+        val map = Map()
+            .put(UnsignedInteger(0), ByteString(HybridCrypto.compressP256(identity)))
+            .put(UnsignedInteger(1), ByteString(secret))
+            .put(UnsignedInteger(2), UnsignedInteger(KNOWN_TUNNEL_DOMAINS))
+            .put(UnsignedInteger(3), UnsignedInteger(nowSeconds))
+            .put(UnsignedInteger(4), SimpleValue.FALSE)
+            .put(UnsignedInteger(5), UnicodeString(if (requestType == RequestType.MakeCredential) "mc" else "ga"))
+        val bytes = ByteArrayOutputStream().also { CborEncoder(it).encode(map) }.toByteArray()
+        return PREFIX + bytesToDigits(bytes)
+    }
+
+    internal fun bytesToDigits(bytes: ByteArray): String {
+        val digitsForBytes = remainderBytes.entries.associate { (digits, count) -> count to digits }
+        val output = StringBuilder()
+        var offset = 0
+        while (offset < bytes.size) {
+            val count = minOf(CHUNK_BYTES, bytes.size - offset)
+            var value = 0L
+            for (index in count - 1 downTo 0) value = (value shl 8) or (bytes[offset + index].toLong() and 0xff)
+            val width = if (count == CHUNK_BYTES) CHUNK_DIGITS else digitsForBytes.getValue(count)
+            output.append(value.toString().padStart(width, '0'))
+            offset += count
+        }
+        return output.toString()
+    }
 
     /** Reverses the seven-byte to seventeen-digit little-endian QR encoding. */
     internal fun digitsToBytes(digits: String): ByteArray {

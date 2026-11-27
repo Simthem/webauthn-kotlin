@@ -1,8 +1,9 @@
 package com.pqvault.core.hybrid
 
+import java.security.KeyPair
 import java.security.PublicKey
 
-/** Noise KNpsk0 responder and post-handshake record protection for FIDO hybrid. */
+/** Noise KNpsk0 for FIDO hybrid, both sides, and the post-handshake record protection. */
 class CableNoise private constructor(
     private val readKey: ByteArray,
     private val writeKey: ByteArray,
@@ -11,6 +12,27 @@ class CableNoise private constructor(
     private var writeSequence = 0
 
     data class Handshake(val response: ByteArray, val transport: CableNoise, val handshakeHash: ByteArray)
+
+    /** The computer's side: [message] goes to the phone, [finish] reads its answer. */
+    class Initiator internal constructor(
+        private val state: NoiseState,
+        private val ephemeral: KeyPair,
+        private val identity: KeyPair,
+        val message: ByteArray,
+    ) {
+        fun finish(response: ByteArray): CableNoise {
+            require(response.size == 81) { "invalid hybrid handshake length" }
+            val peerEphemeralBytes = response.copyOfRange(0, 65)
+            val peerEphemeral = HybridCrypto.decodeUncompressed(peerEphemeralBytes)
+            state.mixHash(peerEphemeralBytes)
+            state.mixKey(peerEphemeralBytes)
+            state.mixKey(HybridCrypto.ecdh(ephemeral.private, peerEphemeral))
+            state.mixKey(HybridCrypto.ecdh(identity.private, peerEphemeral))
+            require(state.decryptAndHash(response.copyOfRange(65, response.size)).isEmpty())
+            val (writeKey, readKey) = state.split()
+            return CableNoise(readKey, writeKey)
+        }
+    }
 
     fun encrypt(plaintext: ByteArray): ByteArray {
         require(writeSequence < (1 shl 24)) { "hybrid write sequence exhausted" }
@@ -63,6 +85,20 @@ class CableNoise private constructor(
             )
         }
 
+        /** Starts the handshake as the computer whose public [identity] the QR code carries. */
+        fun initiate(psk: ByteArray, identity: KeyPair): Initiator {
+            require(psk.size == 32)
+            val state = NoiseState(PROTOCOL_NAME)
+            state.mixHash(byteArrayOf(1))
+            state.mixHash(HybridCrypto.encodeUncompressed(identity.public))
+            state.mixKeyAndHash(psk)
+            val ephemeral = HybridCrypto.generateP256KeyPair()
+            val publicBytes = HybridCrypto.encodeUncompressed(ephemeral.public)
+            state.mixHash(publicBytes)
+            state.mixKey(publicBytes)
+            return Initiator(state, ephemeral, identity, publicBytes + state.encryptAndHash(ByteArray(0)))
+        }
+
         private fun transportNonce(sequence: Int) = ByteArray(12).also {
             it[8] = (sequence ushr 24).toByte()
             it[9] = (sequence ushr 16).toByte()
@@ -72,7 +108,7 @@ class CableNoise private constructor(
     }
 }
 
-private class NoiseState(protocolName: String) {
+internal class NoiseState(protocolName: String) {
     private var chainingKey = ByteArray(32).also {
         protocolName.toByteArray(Charsets.US_ASCII).copyInto(it, endIndex = minOf(32, protocolName.length))
     }

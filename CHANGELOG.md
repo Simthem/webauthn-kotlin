@@ -1,3 +1,61 @@
+## [2.2.0](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.9...v2.2.0) (2026-11-27)
+
+### Features
+
+- OpenSSH security keys. PQ Vault answers `ssh-keygen -t ed25519-sk` and
+  `-t ecdsa-sk` enrolments and SSH logins made from a computer over the hybrid
+  transport, including `-O resident`, `-O verify-required` and custom
+  applications. The private key stays in the vault.
+- Every SSH signature requires a fresh fingerprint or screen-lock verification,
+  whatever the computer asks for. A phone without a secure screen lock refuses
+  SSH requests, and silent requests (`"up": false`) never produce a signature.
+- The approval screen shows the SSH application, the key type and the same
+  `SHA256:` fingerprint `ssh` prints in the terminal.
+- SSH keys in the vault list offer **Copy public key** (the `authorized_keys`
+  line) and **Export key file** (the `id_*_sk` file `ssh-keygen` writes, which
+  holds no private key).
+- Ed25519 credentials (COSE -8), used by `ed25519-sk`, and the CTAP
+  `credProtect` extension, required for resident and `verify-required` keys.
+  ES256 remains the choice whenever a client offers it.
+- An optional OpenSSH security key provider for Linux (`desktop/`). It lets
+  stock `ssh` and `ssh-keygen` (OpenSSH 9.1 or later) use the keys on the phone
+  over the hybrid transport: QR code on the terminal, Bluetooth proximity
+  through BlueZ, encrypted tunnel. It builds and installs without the Android
+  SDK and without root, and refuses any answer that lacks user verification.
+- The computer's side of the hybrid transport (QR encoder, advert reader, Noise
+  initiator, CTAP2 client) lives in the `vault` module next to the phone's side,
+  which now uses the same advert and tunnel code.
+- `ssh-keygen -K` with the provider: the phone lists its resident SSH keys,
+  public parts only, after the user approves and verifies. PQ Vault's own CTAP
+  command `0x41` carries it.
+- The provider installs its own trimmed Java runtime, so the computer needs no
+  Java, and shows the QR code in a window when there is no terminal, from
+  `ssh-agent` or a graphical Git tool.
+- **Copy public key** gives the `authorized_keys` line with `verify-required`,
+  so the server also refuses a signature made without verification, including
+  one made by an older release on another device.
+
+### Security
+
+- SSH keys and website passkeys are kept apart: the Credential Manager provider
+  refuses `ssh:` applications explicitly, and a website passkey never answers an
+  SSH request.
+
+### Build
+
+- Raise the test-only `io.mockk` to 1.14.12, whose Android agent is 16 KB
+  page aligned. Fix the remaining Lint warnings of the `rptest` harness.
+- Stop tracking `vault/bin/`, the stale copy of the sources an IDE compiles
+  into. It was already ignored.
+- CI runs the provider's unit tests and library build, and the OpenSSH
+  interoperability test on GitHub.
+
+### Release notes
+
+- Update every device that opens the vault before creating SSH keys. Earlier
+  releases cannot sign with Ed25519, do not require verification for SSH keys,
+  and drop the stored `credProtect` level when they rewrite the vault.
+
 ## [2.1.9](https://github.com/Simthem/webauthn-kotlin/compare/v2.1.8...v2.1.9) (2026-11-22)
 
 ### Security

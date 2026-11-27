@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the helper on the Java runtime installed next to it.
+here=$(dirname "$(readlink -f "$0")")
+exec "$here/../runtime/bin/java" -cp "$here/../lib/*" com.pqvault.desktop.SkHelperKt

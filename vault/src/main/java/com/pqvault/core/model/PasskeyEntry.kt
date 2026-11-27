@@ -29,6 +29,8 @@ data class PasskeyEntry(
     val publicKeySpki: String,
     val signCount: Long = 0,
     val discoverable: Boolean = true,
+    /** CTAP credProtect level: 1 optional, 2 optional with a credential ID, 3 required. */
+    val credentialProtection: Int = 1,
     val createdAt: Long,
     /** Drives last-writer-wins during a sync merge. Milliseconds since epoch. */
     val updatedAt: Long,

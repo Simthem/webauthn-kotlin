@@ -102,6 +102,16 @@ object HybridCrypto {
         return ByteArray(AES_BLOCK_SIZE).also { engine.processBlock(plaintext, 0, it, 0) }
     }
 
+    /** The inverse of [aesEncryptBlock], used by the computer to read the phone's advert. */
+    fun aesDecryptBlock(key: ByteArray, ciphertext: ByteArray): ByteArray {
+        require(ciphertext.size == AES_BLOCK_SIZE) {
+            "the hybrid advert is a single AES block, was ${ciphertext.size} bytes"
+        }
+        val engine = AESEngine.newInstance()
+        engine.init(false, KeyParameter(key))
+        return ByteArray(AES_BLOCK_SIZE).also { engine.processBlock(ciphertext, 0, it, 0) }
+    }
+
     private const val AES_BLOCK_SIZE = 16
 
     fun aesGcmEncrypt(
@@ -152,6 +162,12 @@ object HybridCrypto {
         )
         require(isOnP256(point)) { "P-256 point is not on the curve" }
         return KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(point, p256))
+    }
+
+    fun compressP256(publicKey: PublicKey): ByteArray {
+        val point = (publicKey as ECPublicKey).w
+        val prefix: Byte = if (point.affineY.testBit(0)) 3 else 2
+        return byteArrayOf(prefix) + point.affineX.toByteArray().fixedWidth(32)
     }
 
     fun decompressP256(bytes: ByteArray): PublicKey {

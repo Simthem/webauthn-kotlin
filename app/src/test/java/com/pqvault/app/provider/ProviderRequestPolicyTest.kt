@@ -42,6 +42,20 @@ class ProviderRequestPolicyTest {
     }
 
     @Test
+    fun `an OpenSSH application is never served to an app or browser on this phone`() {
+        val sshCreation = creation().apply { put("rp", JSONObject().put("id", "ssh:").put("name", "ssh")) }
+
+        assertThat(ProviderRequestPolicy.rpIdOf(signIn(rpId = "ssh:"))).isNull()
+        assertThat(ProviderRequestPolicy.rpIdOf(signIn(rpId = "ssh:work"))).isNull()
+        assertThat(ProviderRequestPolicy.rpIdOf(sshCreation)).isNull()
+        assertThat(ProviderRequestPolicy.targets(signIn(rpId = "ssh:"), "ssh:")).isFalse()
+        assertThat(ProviderRequestPolicy.servesRpId("ssh:")).isFalse()
+        assertThat(ProviderRequestPolicy.servesRpId("")).isFalse()
+        assertThat(ProviderRequestPolicy.servesRpId("example.org")).isTrue()
+        assertThat(ProviderRequestPolicy.originServes("https://ssh", "ssh:")).isFalse()
+    }
+
+    @Test
     fun `a passkey is only used for the site the request names`() {
         assertThat(ProviderRequestPolicy.targets(signIn(), "example.org")).isTrue()
         assertThat(ProviderRequestPolicy.targets(signIn(rpId = "evil.test"), "example.org")).isFalse()

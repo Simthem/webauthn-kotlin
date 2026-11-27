@@ -6,11 +6,14 @@ import co.nstant.`in`.cbor.model.Array as CborArray
 import co.nstant.`in`.cbor.model.ByteString
 import co.nstant.`in`.cbor.model.DataItem
 import co.nstant.`in`.cbor.model.Map as CborMap
+import co.nstant.`in`.cbor.model.NegativeInteger
 import co.nstant.`in`.cbor.model.Number
 import co.nstant.`in`.cbor.model.SimpleValue
 import co.nstant.`in`.cbor.model.UnicodeString
 import co.nstant.`in`.cbor.model.UnsignedInteger
+import com.pqvault.core.format.Base64Url
 import com.pqvault.core.model.PasskeyEntry
+import com.pqvault.core.ssh.OpenSshKeys
 import com.pqvault.core.webauthn.SoftwareAuthenticator
 import java.io.ByteArrayOutputStream
 
@@ -26,6 +29,9 @@ object Ctap2Protocol {
     const val COMMAND_GET_INFO = 0x04
     const val COMMAND_SELECTION = 0x0b
     const val COMMAND_CANCEL = 0x11
+
+    /** PQ Vault's own command, in the CTAP vendor range: the resident SSH keys, public parts only. */
+    const val COMMAND_LIST_SSH_KEYS = 0x41
 
     const val STATUS_OK = 0x00
     const val STATUS_INVALID_COMMAND = 0x01
@@ -59,6 +65,8 @@ object Ctap2Protocol {
             val excludedCredentialIds: List<ByteArray>,
             val residentKey: Boolean,
             val userVerification: Boolean,
+            /** The credProtect level requested through the extension, or null without one. */
+            val credentialProtection: Int? = null,
         ) : Request
 
         data class GetAssertion(
@@ -66,7 +74,11 @@ object Ctap2Protocol {
             val clientDataHash: ByteArray,
             val allowedCredentialIds: List<ByteArray>,
             val userVerification: Boolean,
+            /** False for a silent probe ("up": false), which must never produce a signature. */
+            val userPresence: Boolean = true,
         ) : Request
+
+        data object ListSshKeys : Request
 
         data class Unknown(val command: Int) : Request
     }
@@ -77,6 +89,10 @@ object Ctap2Protocol {
         if (command == COMMAND_GET_INFO) return Request.GetInfo
         if (command == COMMAND_SELECTION) return Request.Selection
         if (command == COMMAND_CANCEL) return Request.Cancel
+        if (command == COMMAND_LIST_SSH_KEYS) {
+            require(packet.size == 1) { "unexpected data after the command" }
+            return Request.ListSshKeys
+        }
         if (command != COMMAND_MAKE_CREDENTIAL && command != COMMAND_GET_ASSERTION) {
             return Request.Unknown(command)
         }
@@ -100,10 +116,15 @@ object Ctap2Protocol {
         success(getInfoMap(userVerificationAvailable))
 
     fun makeCredentialResponse(registration: SoftwareAuthenticator.Registration): ByteArray {
+        val statement = CborMap()
+        registration.attestationSignature?.let { signature ->
+            statement.put(text("alg"), NegativeInteger(registration.entry.algorithmId.toLong()))
+            statement.put(text("sig"), ByteString(signature))
+        }
         val body = CborMap()
-            .put(uint(1), text("none"))
+            .put(uint(1), text(registration.attestationFormat))
             .put(uint(2), ByteString(registration.authenticatorData))
-            .put(uint(3), CborMap())
+            .put(uint(3), statement)
         return success(encode(body))
     }
 
@@ -132,6 +153,23 @@ object Ctap2Protocol {
         return success(encode(body))
     }
 
+    /** One map per key: application, credential ID, COSE algorithm, raw public key, user ID, credProtect. */
+    fun sshKeyListResponse(entries: List<PasskeyEntry>): ByteArray {
+        val keys = CborArray()
+        entries.forEach { entry ->
+            keys.add(
+                CborMap()
+                    .put(uint(1), text(entry.rpId))
+                    .put(uint(2), ByteString(Base64Url.decode(entry.credentialId)))
+                    .put(uint(3), NegativeInteger(entry.algorithmId.toLong()))
+                    .put(uint(4), ByteString(OpenSshKeys.rawPublicKey(entry)))
+                    .put(uint(5), ByteString(Base64Url.decode(entry.userHandle)))
+                    .put(uint(6), uint(entry.credentialProtection.toLong())),
+            )
+        }
+        return success(encode(CborMap().put(uint(1), keys)))
+    }
+
     fun success(): ByteArray = byteArrayOf(STATUS_OK.toByte())
 
     fun error(status: Int): ByteArray = byteArrayOf(status.toByte())
@@ -144,7 +182,13 @@ object Ctap2Protocol {
         val rp = map.map(2) ?: throw IllegalArgumentException("missing RP")
         val user = map.map(3) ?: throw IllegalArgumentException("missing user")
         val parameters = map.array(4) ?: throw IllegalArgumentException("missing pubKeyCredParams")
+        val extensions = map.map(6)
         val options = map.map(7)
+        val credentialProtection = extensions?.item("credProtect")?.let { item ->
+            val level = (item as? UnsignedInteger)?.value?.toInt()
+            require(level != null && level in 1..3) { "invalid credProtect level" }
+            level
+        }
         return Request.MakeCredential(
             clientDataHash = clientDataHash,
             rpId = rp.text("id")?.takeIf(String::isNotBlank)
@@ -159,6 +203,7 @@ object Ctap2Protocol {
             excludedCredentialIds = credentialIds(map.array(5)),
             residentKey = options?.boolean("rk") == true,
             userVerification = options?.boolean("uv") == true,
+            credentialProtection = credentialProtection,
         )
     }
 
@@ -172,6 +217,7 @@ object Ctap2Protocol {
             clientDataHash = clientDataHash,
             allowedCredentialIds = credentialIds(map.array(3)),
             userVerification = options?.boolean("uv") == true,
+            userPresence = options?.boolean("up") != false,
         )
     }
 
@@ -187,16 +233,20 @@ object Ctap2Protocol {
             .put(text("up"), SimpleValue.TRUE)
             .put(text("uv"), if (userVerificationAvailable) SimpleValue.TRUE else SimpleValue.FALSE)
         val transports = CborArray().add(text("hybrid"))
-        val algorithms = CborArray().add(
-            CborMap()
-                .put(text("alg"), co.nstant.`in`.cbor.model.NegativeInteger(-7))
-                .put(text("type"), text("public-key")),
-        )
+        val algorithms = CborArray()
+        SoftwareAuthenticator.SUPPORTED_ALGORITHMS.forEach { algorithm ->
+            algorithms.add(
+                CborMap()
+                    .put(text("alg"), NegativeInteger(algorithm.id.toLong()))
+                    .put(text("type"), text("public-key")),
+            )
+        }
         // Key 6 is pinUvAuthProtocols and must be an array; no PIN protocol is supported here, so
         // the key is left out. Clients reject the whole getInfo response when a key has the wrong
         // type, which tears the hybrid tunnel down right after the handshake.
         val info = CborMap()
             .put(uint(1), versions)
+            .put(uint(2), CborArray().add(text("credProtect")))
             .put(uint(3), ByteString(aaguidBytes()))
             .put(uint(4), options)
             .put(uint(5), uint(4096))

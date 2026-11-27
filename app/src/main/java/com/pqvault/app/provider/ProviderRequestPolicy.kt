@@ -1,6 +1,7 @@
 package com.pqvault.app.provider
 
 import com.pqvault.core.format.Base64Url
+import com.pqvault.core.ssh.OpenSshKeys
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.URI
@@ -28,8 +29,13 @@ internal object ProviderRequestPolicy {
 
     /** Registration nests the relying party id under "rp", authentication carries it at the top level. */
     fun rpIdOf(request: JSONObject): String? =
-        request.optJSONObject("rp")?.optString("id")?.takeIf { it.isNotEmpty() }
-            ?: request.optString("rpId").takeIf { it.isNotEmpty() }
+        (
+            request.optJSONObject("rp")?.optString("id")?.takeIf { it.isNotEmpty() }
+                ?: request.optString("rpId").takeIf { it.isNotEmpty() }
+            )?.takeIf(::servesRpId)
+
+    /** OpenSSH keys are only used from another device, never by an app or browser on this phone. */
+    fun servesRpId(rpId: String): Boolean = rpId.isNotEmpty() && !OpenSshKeys.isApplication(rpId)
 
     /**
      * The passkey chosen in the system sheet has to belong to the site this request is for.

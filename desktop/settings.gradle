@@ -1,0 +1,30 @@
+// Builds the Linux OpenSSH provider on its own, from the vault sources and the root versions.
+pluginManagement {
+    def versions = new Properties()
+    file("../gradle.properties").withInputStream { versions.load(it) }
+    plugins {
+        id "org.jetbrains.kotlin.jvm" version versions.kotlinVersion
+        id "org.jetbrains.kotlin.plugin.serialization" version versions.kotlinVersion
+    }
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+    }
+}
+
+def versions = new Properties()
+file("../gradle.properties").withInputStream { versions.load(it) }
+gradle.beforeProject { project ->
+    versions.each { key, value ->
+        if (!project.hasProperty(key)) project.ext.set(key, value)
+    }
+}
+
+rootProject.name = "pqvault-ssh-helper"

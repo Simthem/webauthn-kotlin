@@ -18,8 +18,10 @@ object CoseKey {
     private const val X = -2L
     private const val Y = -3L
 
+    private const val KTY_OKP = 1L
     private const val KTY_EC2 = 2L
     private const val CRV_P256 = 1L
+    private const val CRV_ED25519 = 6L
 
     /** COSE_Key for an ES256 (P-256) public key: kty=EC2, crv=P-256, with x and y. */
     fun forEs256(publicKey: ECPublicKey): ByteArray {
@@ -38,6 +40,23 @@ object CoseKey {
                 .put(CRV, CRV_P256)
                 .put(X, x)
                 .put(Y, y)
+                .end()
+                .build(),
+        )
+        return out.toByteArray()
+    }
+
+    /** COSE_Key for an Ed25519 public key: kty=OKP, crv=Ed25519, with the raw 32-byte key as x. */
+    fun forEdDsa(publicKey: ByteArray): ByteArray {
+        require(publicKey.size == 32) { "Ed25519 public key must be 32 bytes, was ${publicKey.size}" }
+        val out = ByteArrayOutputStream()
+        CborEncoder(out).encode(
+            CborBuilder()
+                .addMap()
+                .put(KTY, KTY_OKP)
+                .put(ALG, CoseAlgorithm.EDDSA.id.toLong())
+                .put(CRV, CRV_ED25519)
+                .put(X, publicKey)
                 .end()
                 .build(),
         )

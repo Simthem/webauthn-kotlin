@@ -148,6 +148,24 @@
     <string name="hybrid_verify_title">Confirmer la demande de passkey</string>
     <string name="hybrid_verify_subtitle">Vérifiez votre identité pour continuer avec %s</string>
     <string name="hybrid_verify_key_failed">Cet appareil n\'a pas pu confirmer la vérification d\'identité. Aucune signature n\'a été émise.</string>
+    <string name="hybrid_ssh_subject">OpenSSH %s</string>
+    <string name="hybrid_ssh_create_question">Créer une clé SSH pour %s ?</string>
+    <string name="hybrid_ssh_create_explanation">L\'ordinateur enregistre une nouvelle clé de sécurité OpenSSH. La clé privée reste dans votre coffre, et chaque utilisation demande votre empreinte ou le verrouillage de l\'écran.</string>
+    <string name="hybrid_ssh_create_action">Créer la clé SSH</string>
+    <string name="hybrid_ssh_sign_question">Autoriser une connexion SSH ?</string>
+    <string name="hybrid_ssh_sign_explanation">N\'approuvez que si l\'ordinateur affiche la même clé et que vous êtes à l\'origine de cette connexion.</string>
+    <string name="hybrid_ssh_application">Application : %s</string>
+    <string name="hybrid_ssh_key_type">Type de clé : %s</string>
+    <string name="hybrid_ssh_key">Clé : %1$s %2$s</string>
+    <string name="hybrid_ssh_sign_action">Approuver la connexion SSH</string>
+    <string name="hybrid_ssh_uv_unavailable">Les clés SSH exigent un verrouillage d\'écran sécurisé sur ce téléphone. Rien n\'a été signé.</string>
+    <string name="hybrid_ssh_key_exists">Cette clé SSH est déjà dans votre coffre.</string>
+    <string name="hybrid_ssh_no_key">Cette clé SSH n\'est pas dans votre coffre.</string>
+    <string name="hybrid_ssh_list_subject">vos clés OpenSSH</string>
+    <string name="hybrid_ssh_list_question">Envoyer vos clés SSH à cet ordinateur ?</string>
+    <string name="hybrid_ssh_list_explanation">Seules les clés publiques et les identifiants de clé quittent le téléphone. ssh-keygen -K en fait des fichiers de clé.</string>
+    <string name="hybrid_ssh_list_action">Envoyer les clés</string>
+    <string name="hybrid_ssh_no_resident_key">Votre coffre ne contient aucune clé SSH résidente.</string>
 
     <!-- Messages -->
     <string name="vault_created">Coffre créé.</string>
@@ -244,6 +262,16 @@
     <string name="delete_passkey_body">%1$s (%2$s) sera supprimée de tous les appareils synchronisés. Si c\'est votre seul moyen d\'accès à ce compte, vous le perdrez.</string>
     <string name="delete_passkey_confirm">Supprimer</string>
     <string name="passkey_deleted">Passkey supprimée.</string>
+    <string name="ssh_key_title">Clé SSH</string>
+    <string name="ssh_badge">SSH</string>
+    <string name="ssh_copy_public_key">Copier la clé publique</string>
+    <string name="ssh_export_key_file">Exporter le fichier de clé</string>
+    <string name="ssh_public_key_label">Clé publique SSH PQ Vault</string>
+    <string name="ssh_public_key_copied">Clé publique copiée avec verify-required. Ajoutez la ligne à ~/.ssh/authorized_keys sur le serveur.</string>
+    <string name="ssh_key_file_exported">Fichier de clé enregistré. Copiez-le dans ~/.ssh sur l\'ordinateur. Il ne contient aucune clé privée.</string>
+    <string name="ssh_key_file_export_failed">Impossible d\'enregistrer le fichier de clé.</string>
+    <string name="delete_ssh_key_title">Supprimer cette clé SSH ?</string>
+    <string name="delete_ssh_key_body">%1$s (%2$s) sera supprimée de tous les appareils synchronisés. Les serveurs qui n\'acceptent que cette clé refuseront vos connexions.</string>
 
     <!-- Validation des réglages -->
     <string name="webdav_url_malformed">Cette adresse n\'est pas une URL valide.</string>

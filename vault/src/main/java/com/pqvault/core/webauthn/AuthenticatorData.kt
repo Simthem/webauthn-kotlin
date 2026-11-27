@@ -7,6 +7,7 @@ import java.security.MessageDigest
  * Builds the `authenticatorData` structure that every WebAuthn response is signed over.
  *
  * Layout: rpIdHash(32) | flags(1) | signCount(4, big-endian) | [attested credential data]
+ * | [extensions]
  */
 object AuthenticatorData {
 
@@ -25,20 +26,27 @@ object AuthenticatorData {
     const val FLAG_BACKUP_STATE = 0x10
 
     const val FLAG_ATTESTED_CREDENTIAL_DATA = 0x40
+    const val FLAG_EXTENSION_DATA = 0x80
 
     fun build(
         rpId: String,
         flags: Int,
         signCount: Long,
         attestedCredentialData: ByteArray? = null,
+        extensions: ByteArray? = null,
     ): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(sha256(rpId.toByteArray(Charsets.UTF_8)))
 
-        val effectiveFlags = if (attestedCredentialData != null) {
+        var effectiveFlags = if (attestedCredentialData != null) {
             flags or FLAG_ATTESTED_CREDENTIAL_DATA
         } else {
             flags and FLAG_ATTESTED_CREDENTIAL_DATA.inv()
+        }
+        effectiveFlags = if (extensions != null) {
+            effectiveFlags or FLAG_EXTENSION_DATA
+        } else {
+            effectiveFlags and FLAG_EXTENSION_DATA.inv()
         }
         out.write(effectiveFlags and 0xff)
 
@@ -50,6 +58,7 @@ object AuthenticatorData {
         out.write((counter and 0xff).toInt())
 
         attestedCredentialData?.let { out.write(it) }
+        extensions?.let { out.write(it) }
         return out.toByteArray()
     }
 

@@ -25,6 +25,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pqvault.app.ui.VaultViewModel
@@ -44,6 +46,7 @@ import com.pqvault.app.ui.components.StatusBanner
 import com.pqvault.app.ui.theme.PqColors
 import com.pqvault.app.ui.theme.PqIcons
 import com.pqvault.core.model.PasskeyEntry
+import com.pqvault.core.ssh.OpenSshKeys
 
 @Composable
 fun VaultScreen(
@@ -57,6 +60,8 @@ fun VaultScreen(
     onDelete: (String) -> Unit,
     onAcceptRemoteVersion: () -> Unit,
     onDismissSecurityAlert: () -> Unit,
+    onCopySshKey: (String) -> Unit,
+    onExportSshKey: (String) -> Unit,
 ) {
     state.pendingDeletion?.let { entry ->
         DeleteConfirmationDialog(
@@ -140,7 +145,16 @@ fun VaultScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp, top = 6.dp),
             ) {
                 items(state.entries, key = { it.credentialId }) { entry ->
-                    PasskeyRow(entry, onDelete = { onConfirmDelete(entry.credentialId) })
+                    if (OpenSshKeys.isSshKey(entry)) {
+                        SshKeyRow(
+                            entry,
+                            onCopy = { onCopySshKey(entry.credentialId) },
+                            onExport = { onExportSshKey(entry.credentialId) },
+                            onDelete = { onConfirmDelete(entry.credentialId) },
+                        )
+                    } else {
+                        PasskeyRow(entry, onDelete = { onConfirmDelete(entry.credentialId) })
+                    }
                 }
             }
         }
@@ -187,6 +201,59 @@ private fun PasskeyRow(entry: PasskeyEntry, onDelete: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SshKeyRow(entry: PasskeyEntry, onCopy: () -> Unit, onExport: () -> Unit, onDelete: () -> Unit) {
+    PqCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(PqIcons.Key, contentDescription = null, tint = PqColors.Amber500, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.ssh_key_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    OpenSshKeys.fingerprint(entry),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.action_delete), tint = PqColors.Dark3, modifier = Modifier.size(18.dp))
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Badge(stringResource(R.string.ssh_badge), color = PqColors.Amber300)
+            Badge(entry.rpId, color = PqColors.Dark2)
+            Badge(OpenSshKeys.label(entry), color = PqColors.Dark2)
+            if (entry.signCount > 0) {
+                Badge(
+                    pluralStringResource(R.plurals.usage_count, entry.signCount.toInt(), entry.signCount),
+                    color = PqColors.Dark2,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(onClick = onCopy) { Text(stringResource(R.string.ssh_copy_public_key)) }
+            OutlinedButton(onClick = onExport) { Text(stringResource(R.string.ssh_export_key_file)) }
+        }
+    }
+}
+
 /**
  * A passkey may be the only way in to an account, and deleting one propagates to every
  * synced device. A single mistaken tap on a small icon is not a decision anyone means to
@@ -201,14 +268,20 @@ private fun DeleteConfirmationDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = PqColors.Red) },
-        title = { Text(stringResource(R.string.delete_passkey_title)) },
-        text = {
+        title = {
             Text(
                 stringResource(
-                    R.string.delete_passkey_body,
-                    entry.rpName ?: entry.rpId,
-                    entry.userName,
+                    if (OpenSshKeys.isSshKey(entry)) R.string.delete_ssh_key_title else R.string.delete_passkey_title,
                 ),
+            )
+        },
+        text = {
+            Text(
+                if (OpenSshKeys.isSshKey(entry)) {
+                    stringResource(R.string.delete_ssh_key_body, entry.rpId, OpenSshKeys.fingerprint(entry))
+                } else {
+                    stringResource(R.string.delete_passkey_body, entry.rpName ?: entry.rpId, entry.userName)
+                },
             )
         },
         confirmButton = {

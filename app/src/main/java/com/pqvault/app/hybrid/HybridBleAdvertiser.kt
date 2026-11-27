@@ -11,8 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
-import com.pqvault.core.hybrid.HybridCrypto
-import java.security.SecureRandom
+import com.pqvault.core.hybrid.HybridAdvert
 import java.util.UUID
 
 /** Emits the encrypted 20-byte proximity proof expected by a hybrid WebAuthn client. */
@@ -43,17 +42,8 @@ class HybridBleAdvertiser(context: Context) {
             ?: error("Bluetooth LE advertising is not available on this device")
         stop()
 
-        val plaintext = ByteArray(16)
-        plaintext[0] = 0 // QR-initiated tunnel advert.
-        SecureRandom().nextBytes(plaintext, 1, 11)
-        routingId.copyInto(plaintext, 11)
-        plaintext[14] = tunnelDomainId.toByte()
-        plaintext[15] = (tunnelDomainId ushr 8).toByte()
-
-        val eidKey = HybridCrypto.derive(secret, purpose = 1, length = 64)
-        val ciphertext = HybridCrypto.aesEncryptBlock(eidKey.copyOfRange(0, 32), plaintext)
-        val tag = HybridCrypto.hmacSha256(eidKey.copyOfRange(32, 64), ciphertext).copyOf(4)
-        val serviceData = ciphertext + tag
+        val advert = HybridAdvert.seal(secret, routingId, tunnelDomainId)
+        val serviceData = advert.serviceData
 
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -88,7 +78,7 @@ class HybridBleAdvertiser(context: Context) {
                 .build()
             advertiser.startAdvertising(settings, data, activeCallback)
         }
-        plaintext
+        advert.plaintext
     }
 
     @SuppressLint("MissingPermission")
@@ -98,12 +88,6 @@ class HybridBleAdvertiser(context: Context) {
             active.forEach { adapter?.bluetoothLeAdvertiser?.stopAdvertising(it) }
         }
         callbacks = emptyList()
-    }
-
-    private fun SecureRandom.nextBytes(output: ByteArray, fromIndex: Int, toIndex: Int) {
-        val random = ByteArray(toIndex - fromIndex)
-        nextBytes(random)
-        random.copyInto(output, fromIndex)
     }
 
     companion object {

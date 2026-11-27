@@ -9,6 +9,9 @@ import co.nstant.`in`.cbor.model.UnsignedInteger
 import com.google.common.truth.Truth.assertThat
 import com.pqvault.core.format.Base64Url
 import com.pqvault.core.model.CoseAlgorithm
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
+import org.bouncycastle.crypto.util.PublicKeyFactory
 import org.junit.jupiter.api.Test
 import java.math.BigInteger
 import java.security.KeyFactory
@@ -202,5 +205,98 @@ class SoftwareAuthenticatorTest {
 
         assertThat(failure).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(failure).hasMessageThat().contains("not yet accepted by relying")
+    }
+
+    @Test
+    fun `an Ed25519 credential carries an OKP COSE key and verifies its assertions`() {
+        val registration = authenticator.makeCredential(
+            rpId = "ssh:",
+            rpName = null,
+            userHandle = ByteArray(32),
+            userName = "openssh",
+            userDisplayName = "openssh",
+            clientDataHash = clientDataHash,
+            algorithm = CoseAlgorithm.EDDSA,
+        )
+        val publicKey = PublicKeyFactory.createKey(Base64Url.decode(registration.entry.publicKeySpki))
+            as Ed25519PublicKeyParameters
+        val authData = registration.authenticatorData
+        val idLength = ((authData[53].toInt() and 0xff) shl 8) or (authData[54].toInt() and 0xff)
+        val cose = CborDecoder.decode(authData.copyOfRange(55 + idLength, authData.size)).single() as CborMap
+
+        assertThat(registration.entry.algorithmId).isEqualTo(CoseAlgorithm.EDDSA.id)
+        assertThat((cose.get(UnsignedInteger(1)) as UnsignedInteger).value.toInt()).isEqualTo(1)
+        assertThat((cose.get(NegativeInteger(-1)) as UnsignedInteger).value.toInt()).isEqualTo(6)
+        assertThat((cose.get(NegativeInteger(-2)) as ByteString).bytes).isEqualTo(publicKey.encoded)
+
+        val assertion = authenticator.getAssertion(registration.entry, clientDataHash)
+        val verifier = Ed25519Signer().apply {
+            init(false, publicKey)
+            update(assertion.authenticatorData, 0, assertion.authenticatorData.size)
+            update(clientDataHash, 0, clientDataHash.size)
+        }
+        assertThat(verifier.verifySignature(assertion.signature)).isTrue()
+    }
+
+    @Test
+    fun `a requested credProtect level is echoed in the authenticator data and kept on the entry`() {
+        val registration = authenticator.makeCredential(
+            rpId = "ssh:",
+            rpName = null,
+            userHandle = ByteArray(32),
+            userName = "openssh",
+            userDisplayName = "openssh",
+            clientDataHash = clientDataHash,
+            credentialProtection = 3,
+        )
+        val authData = registration.authenticatorData
+        val idLength = ((authData[53].toInt() and 0xff) shl 8) or (authData[54].toInt() and 0xff)
+        val items = CborDecoder.decode(authData.copyOfRange(55 + idLength, authData.size))
+        val extensions = items[1] as CborMap
+
+        assertThat(authData[32].toInt() and AuthenticatorData.FLAG_EXTENSION_DATA).isNotEqualTo(0)
+        assertThat((extensions.get(UnicodeString("credProtect")) as UnsignedInteger).value.toInt()).isEqualTo(3)
+        assertThat(registration.entry.credentialProtection).isEqualTo(3)
+    }
+
+    @Test
+    fun `without credProtect the authenticator data has no extensions`() {
+        val flags = register().authenticatorData[32].toInt()
+
+        assertThat(flags and AuthenticatorData.FLAG_EXTENSION_DATA).isEqualTo(0)
+        assertThat(register().entry.credentialProtection).isEqualTo(1)
+    }
+
+    @Test
+    fun `self attestation is a packed signature made with the new key`() {
+        val registration = authenticator.makeCredential(
+            rpId = "ssh:",
+            rpName = null,
+            userHandle = ByteArray(32),
+            userName = "openssh",
+            userDisplayName = "openssh",
+            clientDataHash = clientDataHash,
+            selfAttestation = true,
+        )
+        val publicKey = KeyFactory.getInstance("EC")
+            .generatePublic(X509EncodedKeySpec(Base64Url.decode(registration.entry.publicKeySpki)))
+        val valid = Signature.getInstance("SHA256withECDSA").run {
+            initVerify(publicKey)
+            update(registration.authenticatorData)
+            update(clientDataHash)
+            verify(registration.attestationSignature)
+        }
+
+        assertThat(registration.attestationFormat).isEqualTo("packed")
+        assertThat(valid).isTrue()
+        assertThat(register().attestationFormat).isEqualTo("none")
+        assertThat(register().attestationSignature).isNull()
+    }
+
+    @Test
+    fun `algorithm selection prefers ES256 and falls back to Ed25519`() {
+        assertThat(SoftwareAuthenticator.selectAlgorithm(listOf(-8, -7))).isEqualTo(CoseAlgorithm.ES256)
+        assertThat(SoftwareAuthenticator.selectAlgorithm(listOf(-8))).isEqualTo(CoseAlgorithm.EDDSA)
+        assertThat(SoftwareAuthenticator.selectAlgorithm(listOf(-257, -49))).isNull()
     }
 }

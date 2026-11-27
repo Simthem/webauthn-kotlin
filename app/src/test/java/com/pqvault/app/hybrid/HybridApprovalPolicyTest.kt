@@ -107,4 +107,27 @@ class HybridApprovalPolicyTest {
         assertThat(HybridApprovalPolicy.acceptsExternalLink(sessionUnderWay = true, codeWaiting = false)).isFalse()
         assertThat(HybridApprovalPolicy.acceptsExternalLink(sessionUnderWay = false, codeWaiting = true)).isFalse()
     }
+
+    @Test
+    fun `an SSH request always requires verification and never warns about an existing account`() {
+        val sshLogin = Ctap2Protocol.Request.GetAssertion(
+            rpId = "ssh:",
+            clientDataHash = ByteArray(32),
+            allowedCredentialIds = emptyList(),
+            userVerification = false,
+        )
+        val sshKey = creation().copy(rpId = "ssh:", userHandle = ByteArray(32), userVerification = false)
+
+        assertThat(HybridApprovalPolicy.requiresVerification(sshLogin)).isTrue()
+        assertThat(HybridApprovalPolicy.requiresVerification(sshKey)).isTrue()
+        assertThat(
+            HybridApprovalPolicy.hasExistingAccount(sshKey, listOf(entry(rpId = "ssh:", userHandle = ByteArray(32)))),
+        ).isFalse()
+    }
+
+    @Test
+    fun `sending the SSH key list always needs verification`() {
+        assertThat(HybridApprovalPolicy.requiresVerification(Ctap2Protocol.Request.ListSshKeys)).isTrue()
+        assertThat(HybridApprovalPolicy.shouldVerify(Ctap2Protocol.Request.ListSshKeys, verificationAvailable = true)).isTrue()
+    }
 }

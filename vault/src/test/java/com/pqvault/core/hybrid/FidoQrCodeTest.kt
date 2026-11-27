@@ -67,4 +67,34 @@ class FidoQrCodeTest {
             offset += count
         }
     }
+
+    @Test
+    fun `a code the computer encodes is read back by the phone's parser`() {
+        val identity = HybridCrypto.generateP256KeyPair()
+        val secret = ByteArray(16) { (it * 5).toByte() }
+
+        val text = FidoQrCode.encode(identity.public, secret, FidoQrCode.RequestType.MakeCredential, 1_800_000_000)
+        val payload = FidoQrCode.parse(text)
+
+        assertThat(text).startsWith("FIDO:/")
+        assertThat(text.substring(6).all(Char::isDigit)).isTrue()
+        assertThat(payload).isNotNull()
+        assertThat(payload!!.peerIdentityUncompressed).isEqualTo(HybridCrypto.encodeUncompressed(identity.public))
+        assertThat(payload.secret).isEqualTo(secret)
+        assertThat(payload.requestTypeHint).isEqualTo(FidoQrCode.RequestType.MakeCredential)
+        assertThat(payload.supportsWebSocket).isTrue()
+        assertThat(FidoQrCode.parse(FidoQrCode.encode(identity.public, secret, FidoQrCode.RequestType.GetAssertion))!!
+            .requestTypeHint).isEqualTo(FidoQrCode.RequestType.GetAssertion)
+    }
+
+    @Test
+    fun `digit encoding round trips every length`() {
+        val random = java.security.SecureRandom()
+        for (length in 1..64) {
+            val bytes = ByteArray(length).also(random::nextBytes)
+            assertThat(FidoQrCode.digitsToBytes(FidoQrCode.bytesToDigits(bytes))).isEqualTo(bytes)
+        }
+        assertThat(FidoQrCode.bytesToDigits(byteArrayOf('a'.code.toByte(), 'b'.code.toByte(), 0xff.toByte())))
+            .isEqualTo("16736865")
+    }
 }

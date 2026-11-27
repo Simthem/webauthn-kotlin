@@ -6,9 +6,9 @@ import android.os.Looper
 import android.util.Log
 import com.pqvault.app.diagnostics.DiagnosticLog
 import com.pqvault.core.hybrid.CableNoise
+import com.pqvault.core.hybrid.CableTunnel
 import com.pqvault.core.hybrid.Ctap2Protocol
 import com.pqvault.core.hybrid.FidoQrCode
-import com.pqvault.core.hybrid.HybridCrypto
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -55,12 +55,11 @@ class HybridSession(
         }
         diagnostics.record("caBLE session started; WebSocket ping watchdog disabled")
         listener.onStatus(Status.Connecting)
-        val tunnelId = HybridCrypto.derive(qr.secret, purpose = 2, length = 16).toHex()
         val request = Request.Builder()
-            .url("wss://$DEFAULT_TUNNEL_DOMAIN/cable/new/$tunnelId")
-            .header("Sec-WebSocket-Protocol", "fido.cable")
+            .url(CableTunnel.newTunnelUrl(qr.secret))
+            .header("Sec-WebSocket-Protocol", CableTunnel.PROTOCOL)
             .build()
-        Log.d(TAG, "connecting to tunnel $DEFAULT_TUNNEL_DOMAIN")
+        Log.d(TAG, "connecting to tunnel ${CableTunnel.domain(0)}")
         socket = client.newWebSocket(request, this)
         handler.postDelayed({ fail("The cross-device request timed out") }, SESSION_TIMEOUT_MS)
     }
@@ -71,7 +70,7 @@ class HybridSession(
                 (response.header("Sec-WebSocket-Protocol") ?: "missing"),
         )
         Log.d(TAG, "tunnel open (${response.code}, protocol ${response.header("Sec-WebSocket-Protocol")})")
-        val routingId = response.header(ROUTING_ID_HEADER)?.hexToBytes()
+        val routingId = response.header(CableTunnel.ROUTING_ID_HEADER)?.hexToBytes()
         if (routingId == null || routingId.size != 3) {
             diagnostics.record("caBLE tunnel returned an invalid routing ID")
             fail("The tunnel did not return a valid routing ID")
@@ -86,12 +85,7 @@ class HybridSession(
             onFailure = { code -> fail("Bluetooth advertising failed ($code)") },
         ).fold(
             onSuccess = { plaintextAdvert ->
-                handshakePsk = HybridCrypto.derive(
-                    secret = qr.secret,
-                    salt = plaintextAdvert,
-                    purpose = 3,
-                    length = 32,
-                )
+                handshakePsk = CableTunnel.psk(qr.secret, plaintextAdvert)
                 listener.onStatus(Status.WaitingForComputer)
                 diagnostics.record("caBLE Bluetooth advert active; waiting for peer")
             },
@@ -224,6 +218,7 @@ class HybridSession(
             )
             is Ctap2Protocol.Request.MakeCredential,
             is Ctap2Protocol.Request.GetAssertion,
+            Ctap2Protocol.Request.ListSshKeys,
             -> {
                 if (requestPending) {
                     sendEncrypted(
@@ -276,12 +271,8 @@ class HybridSession(
         ByteArray(length / 2) { index -> substring(index * 2, index * 2 + 2).toInt(16).toByte() }
     }.getOrNull()
 
-    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
-
     companion object {
         private const val TAG = "HybridSession"
-        private const val DEFAULT_TUNNEL_DOMAIN = "cable.ua5v.com"
-        private const val ROUTING_ID_HEADER = "X-caBLE-Routing-ID"
         private const val MESSAGE_TYPE_SHUTDOWN = 0
         private const val MESSAGE_TYPE_CTAP = 1
         private const val SESSION_TIMEOUT_MS = 180_000L

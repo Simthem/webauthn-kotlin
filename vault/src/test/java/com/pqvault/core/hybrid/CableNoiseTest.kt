@@ -2,6 +2,7 @@ package com.pqvault.core.hybrid
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.security.KeyPair
 
 class CableNoiseTest {
@@ -24,6 +25,35 @@ class CableNoiseTest {
         val fromComputer = "computer request".toByteArray()
         assertThat(responder.transport.decrypt(encryptTransport(keys.writeKey, fromComputer)))
             .isEqualTo(fromComputer)
+    }
+
+    @Test
+    fun `the computer side initiator talks to the phone responder both ways`() {
+        val psk = ByteArray(32) { (it * 3).toByte() }
+        val identity = HybridCrypto.generateP256KeyPair()
+        val computer = CableNoise.initiate(psk, identity)
+
+        val phone = CableNoise.respond(psk, identity.public, computer.message)
+        val channel = computer.finish(phone.response)
+
+        assertThat(computer.message).hasLength(81)
+        assertThat(channel.decrypt(phone.transport.encrypt("phone".toByteArray()))).isEqualTo("phone".toByteArray())
+        assertThat(phone.transport.decrypt(channel.encrypt("computer".toByteArray()))).isEqualTo("computer".toByteArray())
+        assertThat(channel.decrypt(phone.transport.encrypt("second".toByteArray()))).isEqualTo("second".toByteArray())
+    }
+
+    @Test
+    fun `a handshake answer made with another secret or identity is refused`() {
+        val identity = HybridCrypto.generateP256KeyPair()
+        val computer = CableNoise.initiate(ByteArray(32) { 1 }, identity)
+        val responseToAnotherCode = CableNoise.initiate(ByteArray(32) { 2 }, identity).let {
+            CableNoise.respond(ByteArray(32) { 2 }, identity.public, it.message).response
+        }
+
+        assertThrows<Exception> { computer.finish(responseToAnotherCode) }
+        assertThrows<Exception> {
+            CableNoise.respond(ByteArray(32) { 1 }, HybridCrypto.generateP256KeyPair().public, computer.message)
+        }
     }
 
     private data class InitiatorKeys(

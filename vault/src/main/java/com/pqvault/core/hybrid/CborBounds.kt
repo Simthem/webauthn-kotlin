@@ -14,6 +14,9 @@ internal object CborBounds {
         require(item(data, 0, 0) == data.size) { "trailing bytes after the CBOR item" }
     }
 
+    /** The offset just past the well-formed item that starts at [start]. */
+    fun end(data: ByteArray, start: Int): Int = item(data, start, 0)
+
     /** Returns the offset just past the item that starts at [start]. */
     private fun item(data: ByteArray, start: Int, depth: Int): Int {
         require(depth <= MAX_DEPTH) { "CBOR nested too deeply" }

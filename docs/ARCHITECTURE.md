@@ -18,7 +18,7 @@ central trade of this project, and the same one KeePass made.
 
 | Layer | Algorithm | Post-quantum |
 |---|---|---|
-| Passkey signature (WebAuthn) | ES256 (P-256) | **No, dictated by the site** |
+| Passkey and SSH key signature | ES256 (P-256), Ed25519 | **No, dictated by the site** |
 | Vault at rest | Argon2id, XChaCha20-Poly1305 | **Already resistant** |
 | Multi-device key wrapping | X25519 + ML-KEM-768 (hybrid) | **Yes, real gain** |
 | Vault file signature | Ed25519 + ML-DSA-65 (hybrid) | **Yes, real gain** |
@@ -27,7 +27,8 @@ central trade of this project, and the same one KeePass made.
 relying party through `pubKeyCredParams`: the site decides. The COSE identifiers for
 ML-DSA are registered with IANA (ML-DSA-44 = -48, -65 = -49, -87 = -50), but no site
 verifies them today. Signing with ML-DSA would produce a passkey nobody can validate.
-`CoseAlgorithm.negotiate()` offers them and falls back to ES256.
+`SoftwareAuthenticator.selectAlgorithm()` picks ES256, or Ed25519 when a client offers only
+that.
 
 **The vault at rest is already post-quantum.** Its key is symmetric and derived from the
 passphrase; Grover's algorithm only gives a quadratic speedup, so 256 bits still leaves
@@ -179,6 +180,85 @@ An Android intent filter for `fido:` is provided for camera apps that recognise 
 The embedded zxing scanner remains necessary because many camera and generic QR apps on
 de-Googled systems display `FIDO:/...` as inert text instead of offering PQ Vault.
 
+## OpenSSH security keys
+
+OpenSSH's `sk-ecdsa-sha2-nistp256@openssh.com` and `sk-ssh-ed25519@openssh.com` keys are
+FIDO credentials whose relying party ID is an application string starting with `ssh:`.
+The computer sends ordinary CTAP2 `makeCredential` and `getAssertion` requests over the
+hybrid tunnel, with `SHA-256(challenge)` or `SHA-256(signed data)` as the client data
+hash. `sshd` rebuilds `SHA-256(application) | flags | counter | SHA-256(data)` and checks
+the signature over it, which is exactly the authenticator data and client data hash a
+WebAuthn assertion signs.
+
+What OpenSSH needs beyond the website flow:
+
+- **Ed25519** (COSE -8, OKP key) for `ed25519-sk`. ES256 stays the choice whenever a
+  client offers it, so website passkeys keep working on older releases.
+- **credProtect.** `ssh-keygen` refuses to create a resident or `verify-required` key on
+  an authenticator that does not advertise it. The level is stored on the entry and
+  enforced at signing time.
+- **A `packed` self-attestation.** libfido2 verifies the attestation statement of every
+  new credential and rejects `none`. The new key signs its own authenticator data, with
+  no certificate. Websites still get `none`.
+- **Exact extensions.** libfido2 rejects a credential whose authenticator data carries an
+  extension output that was not requested, or lacks one that was.
+- **Silent probes.** `ssh-keygen -O resident` first asks with `"up": false` whether a key
+  already exists. Such a request is answered "no credentials" without any prompt and
+  never produces a signature.
+
+The rules live in `RemoteRequestPolicy`, in the `vault` module, so the app and the JVM
+tests run the same code:
+
+- Every request for an `ssh:` application requires user verification, whatever the client
+  asked for. A phone that cannot verify refuses it before anything is shown, and after the
+  prompt nothing is signed unless the Keystore-backed verification succeeded.
+- An SSH key is non-resident unless the client asked for a resident key, so it is only
+  used when the computer names its key handle.
+- SSH keys and website passkeys never answer for each other. The Credential Manager
+  provider refuses `ssh:` applications outright, both because they are not host names and
+  through an explicit check, so no app or browser on the phone can obtain a signature that
+  `sshd` would accept.
+
+`OpenSshKeys` encodes the public key blob, the `SHA256:` fingerprint and the unencrypted
+`openssh-key-v1` key file `ssh-keygen` writes for a security key. That file holds the
+public key, the application, the flags and the credential ID as key handle. It is what
+another computer needs to ask the phone for a signature and contains no private key.
+Exported keys carry the user-presence and user-verification flags, so `ssh` asks for
+verification explicitly.
+
+## The Linux security key provider
+
+`desktop/` lets the stock OpenSSH client reach the phone. OpenSSH loads
+`libpqvault-sk.so` through `SecurityKeyProvider` (sk-api 10, OpenSSH 9.1 and later). The
+library is deliberately thin: it starts the helper for each request, passes OpenSSH's
+arguments over a socket pair and copies the answer back into OpenSSH's structures. It
+parses nothing beyond bounded length-prefixed fields.
+
+The helper runs the computer's side of the hybrid transport: it shows the `FIDO:/` code on
+the terminal, scans BlueZ over D-Bus for the advert, opens the tunnel, runs the Noise
+initiator and sends one CTAP2 request. It compiles the `vault` module's sources rather
+than depending on a copy, so the QR format (`FidoQrCode`), the advert (`HybridAdvert`), the
+tunnel derivations (`CableTunnel`), Noise (`CableNoise`) and the CTAP2 checks
+(`Ctap2Client`) are the code the phone runs or its exact counterpart, tested against each
+other in the `vault` module.
+
+`Ctap2Client` refuses any answer that is not for the requested application, lacks the
+user-presence or user-verification flag, carries an unrequested extension, or whose
+self-attestation does not verify with the new key. A phone that skipped verification, by
+bug or by tampering, therefore produces nothing OpenSSH can use, on top of the phone's own
+refusal.
+
+`ssh-keygen -K` goes through PQ Vault's own CTAP command, `0x41` in the vendor range.
+Standard CTAP credential management needs a PIN protocol that this transport has no use
+for. The phone answers it only after the user approves and verifies, and only with the
+resident SSH keys: application, credential ID, public key, user ID and credProtect level.
+Website passkeys are never listed.
+
+The provider needs no privilege: BlueZ lets any local user scan, the helper only listens
+for adverts and never connects to the phone over Bluetooth, and everything installs under
+the user's home, including a Java runtime trimmed with `jlink`. With no terminal, the code
+is shown in a window, and on standard error when there is no display either.
+
 ## Interface
 
 The palette comes from the Mantine dark scale, to match share.privcloud.fr: background
@@ -223,7 +303,8 @@ Strings live in resources, English by default with a French translation in `valu
   from `Outcome.Failed.permanent`. Inspecting a human-readable message would break the
   moment that message is translated.
 - **Attestation is `none`.** A self-hosted vault has no manufacturer certificate chain.
-  Sites demanding verifiable attestation will refuse us, which is correct.
+  Sites demanding verifiable attestation will refuse us, which is correct. SSH keys get a
+  self-signed `packed` statement instead, because libfido2 refuses `none`.
 - **`jniLibs.useLegacyPackaging = true`.** Storing native libraries uncompressed for
   page-aligned mmap made AGP insert roughly 20 MB of zero padding into the APK to align
   50 KB of libraries. Compressing them removes the padding and costs nothing at that size.

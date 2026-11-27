@@ -25,6 +25,7 @@ you want, that no third party can read.
   - [Importing a vault file](#importing-a-vault-file)
     - [How many passkeys fit](#how-many-passkeys-fit)
   - [Using a passkey on another device](#using-a-passkey-on-another-device)
+  - [SSH keys (OpenSSH)](#ssh-keys-openssh)
   - [Biometric unlock](#biometric-unlock)
   - [Locking the vault](#locking-the-vault)
   - [Adding a second device](#adding-a-second-device)
@@ -51,6 +52,9 @@ you want, that no third party can read.
   your own WebDAV server.
 - **Merges** instead of overwriting: two phones that both worked offline each keep their
   additions.
+- Holds **OpenSSH security keys** (`ed25519-sk`, `ecdsa-sk`): the phone signs SSH logins
+  made from a computer, after your fingerprint or screen lock, and the private key never
+  leaves the vault.
 - Uses **post-quantum cryptography where it actually helps**: sharing the vault key
   between devices (ML-KEM-768) and signing the file (ML-DSA-65), both hybrid with their
   classical counterparts.
@@ -143,7 +147,7 @@ previous `classes.dex` inside it. `./gradlew clean` (or deleting `app/build`) be
 build you intend to distribute gives a compact file; the sizes above are from clean
 builds.
 
-Run every unit test (132 of them, no device or emulator needed):
+Run every unit test (200 of them, no device or emulator needed):
 
 ```bash
 ./gradlew testAll
@@ -299,6 +303,67 @@ tunnel, broadcasts the encrypted Bluetooth proximity proof, performs the Noise h
 then exchanges CTAP2 requests inside the encrypted channel. The tunnel sees only encrypted
 traffic.
 
+## SSH keys (OpenSSH)
+
+OpenSSH 8.2 and later can keep a key on a FIDO authenticator: the `ed25519-sk` and
+`ecdsa-sk` key types. PQ Vault can be that authenticator. The private key is created in
+the vault and never leaves it. The computer only holds a small key file with the public
+key and a key handle, and each login is signed on the phone.
+
+**Every SSH signature needs your fingerprint or screen lock.** This does not depend on the
+options the key was created with or on what the computer asks for. A phone without a
+secure screen lock refuses to create or use SSH keys, and a request that asks for a
+signature without any user interaction gets nothing.
+
+**The computer needs a FIDO client that can reach a phone.** The request travels over the
+same QR code, Bluetooth proximity check and encrypted tunnel as
+[a passkey on another device](#using-a-passkey-on-another-device). Stock OpenSSH on Linux
+only talks to USB and NFC security keys. The optional provider in
+[desktop/](desktop/README.md) adds this transport to it, without root.
+
+The commands below assume that provider is set up (`SSH_SK_PROVIDER` or
+`SecurityKeyProvider`).
+
+Creating a key, on the computer:
+
+```bash
+ssh-keygen -t ed25519-sk -O verify-required -C "pq-vault"
+```
+
+Scan the QR code with PQ Vault. The phone asks **Create an SSH key for ssh:?** with the
+key type, then for your fingerprint or screen lock. `-O resident` and
+`-O application=ssh:name` are supported. `ecdsa-sk` works the same way for servers that
+predate Ed25519 security keys.
+
+On the server, add the `.pub` file to `~/.ssh/authorized_keys`. Prefixing the line with
+`verify-required` makes the server itself refuse any signature that was not verified on
+the phone:
+
+```
+verify-required sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29t... pq-vault
+```
+
+Logging in: `ssh` prints `Confirm user presence for key ED25519-SK SHA256:...`. PQ Vault
+shows **Allow an SSH login?** with the same key type and fingerprint. Approve only if they
+match and you started the connection.
+
+Using the key from another computer: each SSH key in the vault list has **Copy public key**
+(the `authorized_keys` line, already prefixed with `verify-required`) and **Export key
+file**, which saves the file `ssh-keygen` would have written (`id_ed25519_sk` or
+`id_ecdsa_sk`). Put it in `~/.ssh` on the other computer with `chmod 600`. It contains no
+private key, only what the computer needs to ask the phone for a signature. With the Linux
+provider, `ssh-keygen -K` downloads the resident keys instead, after you approve on the
+phone.
+
+SSH keys and website passkeys are kept apart. An SSH key is never offered to an app or a
+browser on the phone, and a website passkey never answers an SSH request.
+
+SSH keys sync with the vault like passkeys. Update every device that opens the vault to
+2.2.0 or later before creating them: earlier releases cannot sign with Ed25519 and do not
+require verification for SSH keys. That second gap cannot be closed from a newer release,
+which is why the copied line carries `verify-required`: the server then refuses any
+signature made without verification, whichever device made it.
+
 ## Biometric unlock
 
 In settings, under *This device*, turn on biometric unlock. A fingerprint is requested to
@@ -409,15 +474,14 @@ signed by a different key stops matching instead of silently inheriting the trus
 | Key derivation | Argon2id, 64 MiB, 3 passes | Yes, inherently |
 | Device sharing | X25519 + ML-KEM-768 | Yes |
 | File signature | Ed25519 + ML-DSA-65 | Yes |
-| Passkey signature | ES256 (P-256) | No, dictated by sites |
+| Passkey and SSH key signature | ES256 (P-256), Ed25519 | No, dictated by sites and servers |
 
 Two points that are often misunderstood:
 
 **Passkeys cannot be signed post-quantum.** The algorithm is chosen by each site through
 `pubKeyCredParams`. The COSE identifiers for ML-DSA are registered with IANA, but no site
-can verify them yet. A passkey signed with ML-DSA today would be unusable. The code offers
-ML-DSA during negotiation and falls back to ES256, so the day a site accepts it, it will
-work with no change.
+can verify them yet. A passkey signed with ML-DSA today would be unusable. Credentials are
+created with ES256, or with Ed25519 when that is all a client offers.
 
 **The vault contents are already quantum-resistant.** They are protected by a symmetric
 key derived from your passphrase, and Grover's algorithm only halves the effective
@@ -527,7 +591,8 @@ pqvault/
     merge/      Merging and conflict resolution
     sync/       WebDAV engine, independent of the HTTP stack
     webauthn/   Software authenticator, COSE, authenticatorData
-    hybrid/     FIDO QR, caBLE key derivation, Noise and CTAP2 codec
+    hybrid/     FIDO QR, caBLE key derivation, Noise, CTAP2 codec, request policy
+    ssh/        OpenSSH key blobs, fingerprints and key files
   app/          Android application
     provider/   CredentialProviderService, caller verification
     pairing/    QR pairing payload, encoder and scanner
@@ -536,6 +601,7 @@ pqvault/
     security/   Biometric unlock
     sync/       OkHttp WebDAV client, periodic worker
     ui/         Compose interface
+  desktop/      Optional OpenSSH security key provider for Linux, built on its own
   rptest/       Development harness: a fake relying party that requests a passkey
   webauthn/     Original LINE library, kept but unused
   docs/         Architecture, original library README
@@ -564,12 +630,12 @@ org.gradle.java.installations.paths=/opt/jdk-21
 
 ### Running the tests
 
-132 unit tests, none of which need a device or an emulator.
+200 unit tests, none of which need a device or an emulator.
 
 ```bash
-./gradlew testAll                      # every module, 132 tests
-./gradlew :vault:test                  # vault core only, 94 tests
-./gradlew :app:testDebugUnitTest       # app module only, 26 tests
+./gradlew testAll                      # every module, 200 tests
+./gradlew :vault:test                  # vault core only, 151 tests
+./gradlew :app:testDebugUnitTest       # app module only, 37 tests
 ./gradlew :webauthn:testDebugUnitTest  # original library, 12 tests
 ```
 
@@ -622,6 +688,13 @@ The suite covers:
   interoperating with the hybrid Noise responder;
 - the pairing payload, including the assertion that it still fits inside a QR code.
 
+OpenSSH keys have their own tests: public key blobs, fingerprints and key files,
+credProtect, Ed25519, and the rule that no SSH signature is released without user
+verification.
+
+The Linux provider in `desktop/` is built and tested on its own, see
+[its README](desktop/README.md#tests).
+
 Not covered automatically: the idle lock and the biometric path, both of which need a
 `Context` and the Android Keystore.
 
@@ -658,7 +731,7 @@ before pushing is a good predictor of a green pipeline.
 | Check | What it is for |
 |---|---|
 | Gradle wrapper checksum | A tampered `gradle-wrapper.jar` runs arbitrary code on every build, on every machine, including the runner. This is the cheapest supply-chain check a Gradle project has. |
-| Unit tests | The 91 tests above, with JUnit reports published in both platforms. |
+| Unit tests | The unit tests above, with JUnit reports published in both platforms. |
 | Android Lint | Runs over `app` **and** `vault`, and publishes SARIF so findings land in the code-scanning view rather than an HTML file nobody opens. |
 | CodeQL | `security-and-quality` over `java-kotlin` and the workflows themselves. Built manually rather than with autobuild, which guesses at an Android project and often analyses a fraction of the sources while still reporting success. |
 | Snyk | Open Source and Code. Skipped rather than failed when `SNYK_TOKEN` is absent, so a fork's pull request is not red for a secret it was never going to have. |
@@ -666,6 +739,7 @@ before pushing is a good predictor of a green pipeline.
 | Gitleaks / Secret Detection | Over the full history: a credential committed and then removed is still leaked. |
 | Trivy | Filesystem, secrets and misconfiguration. |
 | Dependency Review / Gemnasium | What a change adds to the dependency graph, licences included. |
+| OpenSSH provider | `desktop/` unit tests and a `-Werror` build of the library on both platforms, and the OpenSSH interoperability test on GitHub, whose runners allow user namespaces. |
 | Release signing check | Asserts the release APK comes out **unsigned** when no keystore is configured, so it can never quietly inherit the debug key. |
 
 Dependabot ([.github/dependabot.yml](.github/dependabot.yml)) opens the pull requests that
@@ -693,10 +767,13 @@ the install.
   availability detection does behave correctly.
 - **Attestation is `none`.** A self-hosted vault has no manufacturer certificate chain to
   present. Sites that demand verifiable attestation will refuse the app, which is the
-  correct behaviour.
+  correct behaviour. SSH keys carry a self-signed statement instead, because OpenSSH
+  refuses `none`. It proves possession of the new key and nothing about the device.
 - **The hybrid flow still needs validation on physical hardware.** Its QR encoding,
   cryptography and CTAP messages are covered by JVM tests, but an emulator cannot validate
-  Android BLE advertising against desktop browsers and their public tunnel service.
+  Android BLE advertising against desktop browsers and their public tunnel service. The
+  same holds for SSH keys used through the Linux provider: OpenSSH interoperability is
+  tested with a simulated phone, Bluetooth and the relay are not.
 
 ## Origin of the project
 

@@ -18,8 +18,8 @@ android {
         // /e/OS builds. The system-wide credential provider is gated at runtime instead.
         minSdk = androidMinSdk as int
         targetSdk = androidTargetSdk as int
-        versionCode = 10
-        versionName = "2.1.9"
+        versionCode = 11
+        versionName = "2.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -228,4 +228,6 @@ dependencies {
     androidTestImplementation "androidx.test:runner:$androidxTestRunnerVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxTestExtJunitVersion"
     androidTestImplementation "com.google.truth:truth:$truthVersion"
+    // Android has no Ed25519 in JCA. The tests use the BouncyCastle the app itself ships.
+    androidTestCompileOnly "org.bouncycastle:bcprov-jdk15to18:$bouncyCastleVersion"
 }

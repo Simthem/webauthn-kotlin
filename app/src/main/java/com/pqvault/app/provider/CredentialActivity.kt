@@ -330,7 +330,9 @@ class CredentialActivity : AppCompatActivity() {
             val user: JSONObject? = json?.optJSONObject("user")
             val rpId = rp?.optString("id").orEmpty()
             val userHandle = user?.let(ProviderRequestPolicy::userHandle)
-            if (json == null || rp == null || user == null || rpId.isEmpty() || userHandle == null) {
+            if (json == null || rp == null || user == null || !ProviderRequestPolicy.servesRpId(rpId) ||
+                userHandle == null
+            ) {
                 failCreate(getString(R.string.provider_bad_request))
                 return@launch
             }
@@ -422,11 +424,7 @@ class CredentialActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Picks the algorithm from what the site offers. [CoseAlgorithm.negotiate] prefers
-     * post-quantum when a site lists it, but the authenticator can only actually produce
-     * ES256 today, so we fall back rather than fail.
-     */
+    /** ES256 whenever the site offers it, which every PQ Vault release can sign with. */
     private fun negotiateAlgorithm(params: JSONArray?): CoseAlgorithm? {
         val offered = buildList {
             for (i in 0 until (params?.length() ?: 0)) {
@@ -434,12 +432,7 @@ class CredentialActivity : AppCompatActivity() {
             }
         }
         if (offered.isEmpty()) return CoseAlgorithm.ES256
-        val negotiated = CoseAlgorithm.negotiate(offered) ?: return null
-        return if (negotiated.postQuantum && offered.contains(CoseAlgorithm.ES256.id)) {
-            CoseAlgorithm.ES256
-        } else {
-            negotiated
-        }
+        return SoftwareAuthenticator.selectAlgorithm(offered)
     }
 
     /** False when the vault cannot take the entry. Nothing has changed in that case. */

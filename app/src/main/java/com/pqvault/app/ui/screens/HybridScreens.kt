@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -42,6 +43,7 @@ import com.pqvault.app.ui.components.BannerTone
 import com.pqvault.app.ui.components.PqCard
 import com.pqvault.app.ui.components.StatusBanner
 import com.pqvault.core.hybrid.Ctap2Protocol
+import com.pqvault.core.ssh.OpenSshKeys
 
 /** Camera overlay dedicated to the `FIDO:/` QR shown by another device. */
 @Composable
@@ -221,7 +223,9 @@ private fun HybridApproval(
     onReject: () -> Unit,
 ) {
     when (val request = prompt.request) {
-        is Ctap2Protocol.Request.MakeCredential -> {
+        is Ctap2Protocol.Request.MakeCredential -> if (prompt.ssh) {
+            SshCreation(request, prompt, busy, onApprove)
+        } else {
             Text(
                 stringResource(R.string.hybrid_create_question, request.rpId),
                 style = MaterialTheme.typography.titleSmall,
@@ -265,7 +269,9 @@ private fun HybridApproval(
             }
         }
 
-        is Ctap2Protocol.Request.GetAssertion -> {
+        is Ctap2Protocol.Request.GetAssertion -> if (prompt.ssh) {
+            SshSignIn(request, prompt, busy, onApprove)
+        } else {
             Text(
                 stringResource(R.string.hybrid_sign_question, request.rpId),
                 style = MaterialTheme.typography.titleSmall,
@@ -315,6 +321,8 @@ private fun HybridApproval(
             }
         }
 
+        Ctap2Protocol.Request.ListSshKeys -> SshKeyList(prompt, busy, onApprove)
+
         else -> Unit
     }
     OutlinedButton(
@@ -322,4 +330,136 @@ private fun HybridApproval(
         enabled = !busy,
         modifier = Modifier.fillMaxWidth(),
     ) { Text(stringResource(R.string.reject)) }
+}
+
+@Composable
+private fun SshCreation(
+    request: Ctap2Protocol.Request.MakeCredential,
+    prompt: VaultViewModel.HybridPrompt,
+    busy: Boolean,
+    onApprove: (String?) -> Unit,
+) {
+    Text(
+        stringResource(R.string.hybrid_ssh_create_question, request.rpId),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    prompt.algorithm?.let {
+        Spacer(Modifier.height(6.dp))
+        Text(
+            stringResource(R.string.hybrid_ssh_key_type, OpenSshKeys.label(it)),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    Spacer(Modifier.height(10.dp))
+    Text(
+        stringResource(R.string.hybrid_ssh_create_explanation),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(16.dp))
+    Button(
+        onClick = { onApprove(null) },
+        enabled = !busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (busy) CircularProgressIndicator(strokeWidth = 2.dp) else {
+            Text(stringResource(R.string.hybrid_ssh_create_action))
+        }
+    }
+}
+
+@Composable
+private fun SshSignIn(
+    request: Ctap2Protocol.Request.GetAssertion,
+    prompt: VaultViewModel.HybridPrompt,
+    busy: Boolean,
+    onApprove: (String?) -> Unit,
+) {
+    Text(
+        stringResource(R.string.hybrid_ssh_sign_question),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    Spacer(Modifier.height(6.dp))
+    Text(
+        stringResource(R.string.hybrid_ssh_application, request.rpId),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(10.dp))
+    Text(
+        stringResource(R.string.hybrid_ssh_sign_explanation),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(12.dp))
+    prompt.candidates.forEach { entry ->
+        Text(
+            stringResource(R.string.hybrid_ssh_key, OpenSshKeys.label(entry), OpenSshKeys.fingerprint(entry)),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        Button(
+            onClick = { onApprove(entry.credentialId) },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (busy) CircularProgressIndicator(strokeWidth = 2.dp) else {
+                Text(stringResource(R.string.hybrid_ssh_sign_action))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun SshKeyList(
+    prompt: VaultViewModel.HybridPrompt,
+    busy: Boolean,
+    onApprove: (String?) -> Unit,
+) {
+    Text(
+        stringResource(R.string.hybrid_ssh_list_question),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    Spacer(Modifier.height(10.dp))
+    Text(
+        stringResource(R.string.hybrid_ssh_list_explanation),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(12.dp))
+    prompt.candidates.forEach { entry ->
+        Text(
+            stringResource(R.string.hybrid_ssh_key, OpenSshKeys.label(entry), OpenSshKeys.fingerprint(entry)),
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            stringResource(R.string.hybrid_ssh_application, entry.rpId),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+    Spacer(Modifier.height(8.dp))
+    Button(
+        onClick = { onApprove(null) },
+        enabled = !busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (busy) CircularProgressIndicator(strokeWidth = 2.dp) else {
+            Text(stringResource(R.string.hybrid_ssh_list_action))
+        }
+    }
 }

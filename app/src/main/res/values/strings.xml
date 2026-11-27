@@ -148,6 +148,24 @@
     <string name="hybrid_verify_title">Confirm the passkey request</string>
     <string name="hybrid_verify_subtitle">Verify your identity to continue with %s</string>
     <string name="hybrid_verify_key_failed">Identity verification could not be confirmed by this device. No signature was released.</string>
+    <string name="hybrid_ssh_subject">OpenSSH %s</string>
+    <string name="hybrid_ssh_create_question">Create an SSH key for %s?</string>
+    <string name="hybrid_ssh_create_explanation">The computer is enrolling a new OpenSSH security key. The private key stays in your vault, and every use of it asks for your fingerprint or screen lock.</string>
+    <string name="hybrid_ssh_create_action">Create SSH key</string>
+    <string name="hybrid_ssh_sign_question">Allow an SSH login?</string>
+    <string name="hybrid_ssh_sign_explanation">Approve only if the computer shows the same key and you started this connection.</string>
+    <string name="hybrid_ssh_application">Application: %s</string>
+    <string name="hybrid_ssh_key_type">Key type: %s</string>
+    <string name="hybrid_ssh_key">Key: %1$s %2$s</string>
+    <string name="hybrid_ssh_sign_action">Approve SSH login</string>
+    <string name="hybrid_ssh_uv_unavailable">SSH keys need a secure screen lock on this phone. Nothing was signed.</string>
+    <string name="hybrid_ssh_key_exists">This SSH key is already in your vault.</string>
+    <string name="hybrid_ssh_no_key">This SSH key is not in your vault.</string>
+    <string name="hybrid_ssh_list_subject">your OpenSSH keys</string>
+    <string name="hybrid_ssh_list_question">Send your SSH keys to this computer?</string>
+    <string name="hybrid_ssh_list_explanation">Only the public keys and key handles leave the phone. ssh-keygen -K turns them into key files.</string>
+    <string name="hybrid_ssh_list_action">Send the keys</string>
+    <string name="hybrid_ssh_no_resident_key">Your vault has no resident SSH key.</string>
 
     <!-- Messages -->
     <string name="vault_created">Vault created.</string>
@@ -243,6 +261,16 @@
     <string name="delete_passkey_body">%1$s (%2$s) will be deleted from every synced device. If it is your only way in to that account, you will lose access.</string>
     <string name="delete_passkey_confirm">Delete</string>
     <string name="passkey_deleted">Passkey deleted.</string>
+    <string name="ssh_key_title">SSH key</string>
+    <string name="ssh_badge">SSH</string>
+    <string name="ssh_copy_public_key">Copy public key</string>
+    <string name="ssh_export_key_file">Export key file</string>
+    <string name="ssh_public_key_label">PQ Vault SSH public key</string>
+    <string name="ssh_public_key_copied">Public key copied with verify-required. Add the line to ~/.ssh/authorized_keys on the server.</string>
+    <string name="ssh_key_file_exported">Key file saved. Copy it to ~/.ssh on the computer. It holds no private key.</string>
+    <string name="ssh_key_file_export_failed">Could not save the key file.</string>
+    <string name="delete_ssh_key_title">Delete this SSH key?</string>
+    <string name="delete_ssh_key_body">%1$s (%2$s) will be deleted from every synced device. Servers that only accept this key will refuse your logins.</string>
 
     <!-- Settings validation -->
     <string name="webdav_url_malformed">This address is not a valid URL.</string>

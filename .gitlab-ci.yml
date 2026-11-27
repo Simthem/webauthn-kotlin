@@ -172,6 +172,26 @@ test:unit:
         - app/build/test-results/testDebugUnitTest/TEST-*.xml
         - webauthn/build/test-results/testDebugUnitTest/TEST-*.xml
 
+# The optional OpenSSH provider is its own build and needs no Android SDK. Its OpenSSH
+# interop test needs user namespaces, which container runners do not grant.
+test:desktop:
+  stage: test
+  before_script:
+    - *export-proxy
+    - apt-get update -qq && apt-get install -qq -y --no-install-recommends gcc libc6-dev make
+    - chmod +x ./gradlew
+  script:
+    - ./gradlew --no-daemon -p desktop test
+    - make -C desktop/native
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    paths:
+      - desktop/build/reports/tests/
+    reports:
+      junit:
+        - desktop/build/test-results/test/TEST-*.xml
+
 test:lint:
   <<: *android-sdk
   stage: test

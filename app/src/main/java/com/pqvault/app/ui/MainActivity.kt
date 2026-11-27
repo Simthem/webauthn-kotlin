@@ -1,6 +1,8 @@
 package com.pqvault.app.ui
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -57,6 +59,23 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.diagnostics_exported, Toast.LENGTH_SHORT).show()
             }.onFailure {
                 Toast.makeText(this, R.string.diagnostics_export_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private val sshKeyFilePicker = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val content = model.takeSshKeyExport()
+        if (uri != null && content != null) {
+            runCatching {
+                contentResolver.openOutputStream(uri, "wt")?.use {
+                    it.write(content.toByteArray(Charsets.US_ASCII))
+                } ?: error("No output stream")
+            }.onSuccess {
+                Toast.makeText(this, R.string.ssh_key_file_exported, Toast.LENGTH_LONG).show()
+            }.onFailure {
+                Toast.makeText(this, R.string.ssh_key_file_export_failed, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -144,6 +163,8 @@ class MainActivity : AppCompatActivity() {
                             onDelete = model::deleteEntry,
                             onAcceptRemoteVersion = model::acceptRemoteVersion,
                             onDismissSecurityAlert = model::dismissSecurityAlert,
+                            onCopySshKey = { id -> model.sshPublicKey(id)?.let(::copySshPublicKey) },
+                            onExportSshKey = { id -> model.beginSshKeyExport(id)?.let(sshKeyFilePicker::launch) },
                         )
 
                         VaultViewModel.Screen.Settings -> SettingsScreen(
@@ -220,6 +241,12 @@ class MainActivity : AppCompatActivity() {
         // process may have been frozen for hours with its coroutines suspended, so the
         // deadline is re-checked against the clock rather than trusted to have fired.
         model.onResumed()
+    }
+
+    private fun copySshPublicKey(line: String) {
+        getSystemService(ClipboardManager::class.java)
+            ?.setPrimaryClip(ClipData.newPlainText(getString(R.string.ssh_public_key_label), line))
+        model.sshPublicKeyCopied()
     }
 
     override fun onNewIntent(intent: Intent) {

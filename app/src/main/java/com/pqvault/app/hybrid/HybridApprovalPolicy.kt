@@ -2,6 +2,7 @@ package com.pqvault.app.hybrid
 
 import com.pqvault.core.format.Base64Url
 import com.pqvault.core.hybrid.Ctap2Protocol
+import com.pqvault.core.hybrid.RemoteRequestPolicy
 import com.pqvault.core.model.PasskeyEntry
 
 /** Approval follows the received CTAP command, never a QR hint or an account label. */
@@ -16,8 +17,9 @@ internal object HybridApprovalPolicy {
         !sessionUnderWay && !codeWaiting
 
     fun requiresVerification(request: Ctap2Protocol.Request): Boolean = when (request) {
-        is Ctap2Protocol.Request.MakeCredential -> request.userVerification
-        is Ctap2Protocol.Request.GetAssertion -> request.userVerification
+        is Ctap2Protocol.Request.MakeCredential -> RemoteRequestPolicy.requiresVerification(request)
+        is Ctap2Protocol.Request.GetAssertion -> RemoteRequestPolicy.isSsh(request) || request.userVerification
+        Ctap2Protocol.Request.ListSshKeys -> true
         else -> false
     }
 
@@ -25,12 +27,13 @@ internal object HybridApprovalPolicy {
     // verification when possible, with the same cancellation behavior as required UV.
     fun shouldVerify(request: Ctap2Protocol.Request, verificationAvailable: Boolean): Boolean =
         verificationAvailable && (request is Ctap2Protocol.Request.MakeCredential ||
-            request is Ctap2Protocol.Request.GetAssertion)
+            request is Ctap2Protocol.Request.GetAssertion || request == Ctap2Protocol.Request.ListSshKeys)
 
+    /** OpenSSH sends the same placeholder user for every key, so SSH keys are never flagged. */
     fun hasExistingAccount(
         request: Ctap2Protocol.Request.MakeCredential,
         entries: List<PasskeyEntry>,
-    ): Boolean = entries.any { entry ->
+    ): Boolean = !RemoteRequestPolicy.isSsh(request) && entries.any { entry ->
         entry.rpId == request.rpId &&
             Base64Url.decode(entry.userHandle).contentEquals(request.userHandle)
     }
